@@ -1,0 +1,33 @@
+<!doctype html><html lang="vi"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><title>Cát Tường · Pháp lý dự án</title>
+<link rel="icon" type="image/png" href="logo-gold.png">
+<style>:root{color-scheme:dark}body{margin:0}img{max-width:100%}[hidden]{display:none!important}</style>
+<link rel="stylesheet" href="app.css">
+<script>try{const t=localStorage.getItem("ctg-theme-v2");if(t)document.documentElement.dataset.theme=t}catch(e){}</script>
+</head><body>
+<a class="skip" href="#page">Bỏ qua tới nội dung</a>
+<div id="loginView" hidden></div>
+<div class="shell" id="appView" hidden>
+  <nav class="rail" id="rail" aria-label="Ứng dụng">
+    <div class="brand"><img class="logo" src="logo-gold.png" alt="Logo Cát Tường"><div><b>CÁT TƯỜNG GROUP</b><small>Pháp lý dự án · MOD-09</small></div></div>
+    <h6>Ứng dụng</h6>
+    <div id="nav"></div>
+    <div class="miniops" id="miniops"></div><div class="foot" id="railFoot"></div>
+  </nav>
+  <div class="main">
+    <header class="top">
+      <button class="ibtn menubtn" id="menuBtn" type="button" aria-label="Mở danh sách màn hình"><svg viewBox="0 0 24 24"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button>
+      <div class="crumb" id="crumb"></div>
+      <div class="tctl">
+        <label><span class="skip">Dự án</span><select class="sel" id="proj" aria-label="Dự án đang xem"></select></label>
+        <label><span class="skip">Vai trò</span><select class="sel" id="role" aria-label="Vai trò của bạn trong dự án"><option value="lap">Người lập</option><option value="kiem">Người kiểm</option><option value="duyet">Người duyệt</option><option value="xem">Chỉ xem</option></select></label>
+        <button class="ibtn aibtn" id="aiTop" type="button" data-go="screen-09-ai" aria-label="Trợ lý AI" title="Trợ lý AI"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3l1.8 5.2L19 10l-5.2 1.8L12 17l-1.8-5.2L5 10l5.2-1.8zM19 16l.8 2.2L22 19l-2.2.8L19 22l-.8-2.2L16 19l2.2-.8z"/></svg></button>
+        <button class="ibtn" id="themeBtn" type="button" aria-label="Đổi giao diện sáng/tối"><svg viewBox="0 0 24 24"><path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/></svg></button>
+      </div>
+    </header>
+    <main class="page" id="page" tabindex="-1"></main>
+  </div>
+</div>
+<nav class="dock mdock" id="mdock" aria-label="Điều hướng nhanh" hidden></nav>
+<script src="vanban.js"></script>
+<script src="app.js"></script>
+</body></html>
