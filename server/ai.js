@@ -4,7 +4,7 @@ const Anthropic = require('@anthropic-ai/sdk').default;
 const path = require('path');
 const { docxText, readXlsx } = require('./xlsx');
 
-const MODEL = 'claude-opus-5-5';
+const MODEL = 'claude-sonnet-5-5';   // đọc tệp, kiểm tra / đối chiếu hồ sơ, soạn văn bản — Sonnet: rẻ bằng nửa Opus
 let client = null;
 const enabled = () => !!process.env.ANTHROPIC_API_KEY;
 const getClient = () => (client ||= new Anthropic());
@@ -63,19 +63,35 @@ const DRAFT = obj({
   can_kiem_tra: strs('điểm người soạn phải kiểm tra / điền trước khi trình ký'),
 });
 
-async function call(system, schema, content, effort = 'medium') {
+// tra cứu quy định mới nhất khi soạn / kiểm tra: chỉ trang pháp luật chính thống (mỗi lần tìm ~250 đ)
+const LAW_SITES = ['vbpl.vn', 'thuvienphapluat.vn', 'luatvietnam.vn', 'chinhphu.vn', 'congbao.chinhphu.vn', 'dichvucong.gov.vn', 'bacninh.gov.vn', 'moc.gov.vn', 'mae.gov.vn'];
+// bản tìm kiếm cơ bản: kết quả chính xác hơn, ít token hơn bản lọc động khi cần trả JSON
+const lawSearch = n => [{ type: 'web_search_20250305', name: 'web_search', max_uses: n, allowed_domains: LAW_SITES }];
+async function call(system, schema, content, effort = 'medium', tools = null) {
   if (!enabled()) { const e = new Error('Chưa cấu hình ANTHROPIC_API_KEY trong file .env của module — AI đang tắt.'); e.status = 400; throw e; }
-  const msg = await getClient().beta.messages.stream({
-    model: MODEL, max_tokens: 32000,
-    betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default',
-    thinking: { type: 'adaptive' },
-    output_config: { effort, format: { type: 'json_schema', schema } },
-    system,
-    messages: [{ role: 'user', content }],
-  }).finalMessage();
+  const messages = [{ role: 'user', content }];
+  let msg;
+  // có công cụ tìm kiếm: lượt dài có thể dừng giữa chừng (pause_turn) — gửi lại để AI làm tiếp
+  for (let i = 0; i < 4; i++) {
+    msg = await getClient().beta.messages.stream({
+      model: MODEL, max_tokens: 32000,
+      betas: ['server-side-fallback-2026-07-01'], fallbacks: 'default',
+      thinking: { type: 'adaptive' },
+      output_config: { effort, format: { type: 'json_schema', schema } },
+      ...(tools ? { tools } : {}),
+      system, messages,
+    }).finalMessage();
+    // lỗi tìm kiếm không ném ra ngoài (HTTP 200, khối kết quả là đối tượng lỗi) — ghi lại để theo dõi
+    const errs = msg.content.filter(b => b.type === 'web_search_tool_result' && !Array.isArray(b.content)).map(b => b.content?.error_code);
+    if (tools) console.log(`AI tra cứu: ${msg.usage?.server_tool_use?.web_search_requests || 0} lần tìm${errs.length ? ', lỗi: ' + errs.join(', ') : ''}`);
+    if (msg.stop_reason !== 'pause_turn') break;
+    messages.push({ role: 'assistant', content: msg.content });
+  }
   if (msg.stop_reason === 'refusal') { const e = new Error('AI từ chối xử lý yêu cầu này.'); e.status = 422; throw e; }
   if (msg.stop_reason === 'max_tokens') { const e = new Error('Kết quả quá dài, bị cắt. Hãy giảm số tệp đưa vào.'); e.status = 422; throw e; }
-  return JSON.parse(msg.content.filter(b => b.type === 'text').map(b => b.text).join(''));
+  const T = msg.content.filter(b => b.type === 'text').map(b => b.text);
+  // có tìm kiếm thì có thể lẫn câu dẫn trước kết quả: lấy khối JSON cuối cùng
+  try { return JSON.parse(T.join('')); } catch (e) { if (T.length > 1) return JSON.parse(T.at(-1)); throw e; }
 }
 
 // ---------- tệp → khối nội dung ----------
@@ -118,20 +134,31 @@ tên dự án, chủ đầu tư, địa điểm, diện tích, quy mô, số li�
 Mọi sai lệch đưa vào canh_bao (loai = sai_lech_buoc_truoc khi lệch với bước trước). Nêu rõ người dùng cần sửa hồ sơ nào hoặc đề nghị cơ quan đính chính gì.`;
 const SYS_DRAFT_CHECK = `${ROLE}
 Nhiệm vụ: KIỂM TRA DỰ THẢO văn bản sau khi người dùng chỉnh sửa. Đối chiếu nội dung dự thảo với hồ sơ liên quan (các bước trước, hồ sơ trong bước): số liệu, tên, số và ngày văn bản viện dẫn, căn cứ pháp lý (hết hiệu lực / không có trong thư viện),
-thể thức theo Nghị định 30/2020/NĐ-CP (tên loại, trích yếu, kính gửi, nơi nhận, chức vụ người ký), chỗ còn để trống «[…]», lỗi chính tả, câu chữ mâu thuẫn.`;
+thể thức theo Nghị định 30/2020/NĐ-CP (tên loại, trích yếu, kính gửi, nơi nhận, chức vụ người ký), chỗ còn để trống «[…]», lỗi chính tả, câu chữ mâu thuẫn.
+Căn cứ pháp lý nào không chắc còn hiệu lực (không có trong thư viện, hoặc có thể đã bị thay thế / sửa đổi) thì dùng web_search tra trên trang pháp luật chính thống; hết hiệu lực thì cảnh báo loai = het_hieu_luc, nêu văn bản thay thế và nguồn.`;
+const SYS_FILE = `${ROLE}
+Nhiệm vụ: người dùng VỪA TẢI LÊN MỘT TỆP hồ sơ cho một bước thủ tục. Kiểm tra ngay tệp này (chưa cần đủ cả bộ):
+- Sai sót trong chính tệp: sai tên dự án, chủ đầu tư, địa điểm, số liệu, ngày tháng; thiếu chữ ký / dấu; sai thể thức; nội dung không đúng mục checklist được tải vào.
+- ĐỐI CHIẾU với hồ sơ đã có của bước này và HỒ SƠ CÁC BƯỚC TRƯỚC (phần dữ liệu): cùng một thông số mà giá trị khác (diện tích, quy mô, tổng mức đầu tư, số / ngày văn bản viện dẫn, tên cơ quan…) → loai = mau_thuan hoặc sai_lech_buoc_truoc, nêu rõ hai giá trị và hồ sơ nào.
+- QUY ĐỊNH HIỆN HÀNH: căn cứ pháp lý tệp viện dẫn còn hiệu lực không; thành phần / nội dung có đúng yêu cầu của thủ tục không. Không chắc thì dùng web_search tra trên trang pháp luật chính thống; nêu điều, khoản và nguồn.
+Mỗi cảnh báo chỉ rõ chỗ sai và cách sửa. Không cảnh báo chung chung. Tệp ổn thì canh_bao rỗng và ket_luan = dat.`;
 const SYS_SUGGEST = `${ROLE}
 Nhiệm vụ: người dùng cung cấp văn bản luật / quy định mới hoặc yêu cầu riêng của cơ quan tiếp nhận. Đọc và đề xuất BỔ SUNG / SỬA checklist hồ sơ của thủ tục cho đúng quy định đó.
 Chỉ đề xuất những gì văn bản được cung cấp thực sự yêu cầu; ghi căn cứ (điều, khoản). Không lặp lại mục đã có.`;
 const SYS_DRAFT = `${ROLE}
 Nhiệm vụ: SOẠN DỰ THẢO văn bản cho bước thủ tục đang xử lý, đúng mẫu quy định (nếu có biểu mẫu thì theo đúng bố cục, đề mục của biểu mẫu) và thể thức văn bản hành chính theo Nghị định 30/2020/NĐ-CP.
-Lấy thông tin từ hồ sơ, văn bản của các bước trước và của bước này (số, ngày quyết định đã có, diện tích, quy mô, tổng mức đầu tư…). Căn cứ pháp lý chỉ dùng văn bản còn hiệu lực trong thư viện.
-Thông tin chưa có thì để «[cần bổ sung: …]» — tuyệt đối không bịa. Văn phong hành chính, trang trọng.`;
+Lấy thông tin từ hồ sơ, văn bản của các bước trước và của bước này (số, ngày quyết định đã có, diện tích, quy mô, tổng mức đầu tư…). Căn cứ pháp lý chỉ dùng văn bản còn hiệu lực.
+Trước khi soạn, dùng web_search (vài lần, trang pháp luật chính thống) để xác nhận: mẫu / biểu mẫu MỚI NHẤT áp dụng cho văn bản này (số mẫu, văn bản ban hành mẫu) và hiệu lực của các căn cứ định dẫn (đã bị thay thế, sửa đổi chưa). Căn cứ đã bị thay thế thì dùng văn bản thay thế và ghi vào can_kiem_tra.
+Thông tin chưa có thì để «[cần bổ sung: …]» — tuyệt đối không bịa. Văn phong hành chính, trang trọng.
+Trường nguon: liệt kê hồ sơ đã lấy thông tin (tên đúng như trong dữ liệu) và trang đã tra cứu dạng «Tên văn bản / trang · URL».`;
 
 const check = (ctx, files) => { const p = packFiles(files); return call(SYS_CHECK, CHECK, [{ type: 'text', text: `<du_lieu>\n${ctx}\n</du_lieu>${p.skipped.length ? `\nTệp quá dung lượng, chỉ có phần tóm tắt trong dữ liệu: ${p.skipped.join('; ')}` : ''}` }, ...p.blocks, { type: 'text', text: 'Hãy kiểm tra hồ sơ của bước này.' }], 'high').then(r => ({ ...r, _sent: p.sent, _skipped: p.skipped })); };
 const checkResult = (ctx, resultFile, buf, files) => { const p = packFiles(files); return call(SYS_RESULT, CHECK, [{ type: 'text', text: `<du_lieu>\n${ctx}\n</du_lieu>` }, ...p.blocks, { type: 'text', text: '=== KẾT QUẢ CẦN ĐỐI CHIẾU ===' }, ...fileBlocks(resultFile, buf), { type: 'text', text: 'Hãy đối chiếu kết quả trên với hồ sơ.' }], 'high').then(r => ({ ...r, _sent: [resultFile.name, ...p.sent], _skipped: p.skipped })); };
-const checkDraft = (ctx, draftText, files) => { const p = packFiles(files); return call(SYS_DRAFT_CHECK, CHECK, [{ type: 'text', text: `<du_lieu>\n${ctx}\n</du_lieu>` }, ...p.blocks, { type: 'text', text: `=== DỰ THẢO ===\n${draftText}\n\nHãy kiểm tra dự thảo.` }], 'high').then(r => ({ ...r, _sent: p.sent, _skipped: p.skipped })); };
+const checkDraft = (ctx, draftText, files) => { const p = packFiles(files); return call(SYS_DRAFT_CHECK, CHECK, [{ type: 'text', text: `<du_lieu>\n${ctx}\n</du_lieu>` }, ...p.blocks, { type: 'text', text: `=== DỰ THẢO ===\n${draftText}\n\nHãy kiểm tra dự thảo.` }], 'high', lawSearch(5)).then(r => ({ ...r, _sent: p.sent, _skipped: p.skipped })); };
+// tệp vừa tải: chỉ gửi nguyên tệp này; hồ sơ khác của bước và các bước trước dùng phần tóm tắt đã trích trong ctx (đỡ tốn)
+const checkFile = (ctx, f, buf) => call(SYS_FILE, CHECK, [{ type: 'text', text: `<du_lieu>\n${ctx}\n</du_lieu>` }, { type: 'text', text: '=== TỆP VỪA TẢI LÊN ===' }, ...fileBlocks(f, buf), { type: 'text', text: `Tệp được tải vào mục: «${f.item}». Hãy kiểm tra tệp này.` }], 'medium', lawSearch(3)).then(r => ({ ...r, _sent: [f.name], _skipped: [] }));
 const suggest = (ctx, text, file, buf) => call(SYS_SUGGEST, SUGGEST, [{ type: 'text', text: `<checklist_hien_tai>\n${ctx}\n</checklist_hien_tai>` }, ...(file ? fileBlocks(file, buf) : []), ...(text ? [{ type: 'text', text: `<van_ban_moi>\n${text}\n</van_ban_moi>` }] : []), { type: 'text', text: 'Hãy đề xuất bổ sung / sửa checklist.' }], 'high');
-const draft = (ctx, spec, files) => { const p = packFiles(files); return call(SYS_DRAFT, DRAFT, [{ type: 'text', text: `<du_lieu>\n${ctx}\n</du_lieu>` }, ...p.blocks, { type: 'text', text: `<yeu_cau_soan>\n${spec}\n</yeu_cau_soan>` }], 'high'); };
+const draft = (ctx, spec, files) => { const p = packFiles(files); return call(SYS_DRAFT, DRAFT, [{ type: 'text', text: `<du_lieu>\n${ctx}\n</du_lieu>` }, ...p.blocks, { type: 'text', text: `<yeu_cau_soan>\n${spec}\n</yeu_cau_soan>` }], 'high', lawSearch(6)); };
 
 // ---------- Trợ lý AI (hội thoại tự do, trả lời dạng stream) ----------
 const SYS_CHAT = `${ROLE}
@@ -309,4 +336,4 @@ async function geminiChat(m, ctx, history, onText) {
   return { text, cut: finish === 'MAX_TOKENS', searched };
 }
 
-module.exports = { enabled, extract, check, checkResult, checkDraft, suggest, draft, chat, agentResume, fileBlocks, MODEL, CHAT_MODELS, CLAUDE_DEFAULT, chatDefault, canChat, geminiOn, setClient };
+module.exports = { enabled, extract, check, checkResult, checkDraft, checkFile, suggest, draft, chat, agentResume, fileBlocks, MODEL, CHAT_MODELS, CLAUDE_DEFAULT, chatDefault, canChat, geminiOn, setClient };

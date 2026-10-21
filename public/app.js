@@ -178,7 +178,13 @@ const AIS={cho:["n","AI chờ đọc"],dang:["b","AI đang đọc…"],xong:["g"
 const MUC={cao:["r","Cao"],trung_binh:["a","Trung bình"],thap:["b","Thấp"]};
 const WL={thieu_ho_so:"Thiếu hồ sơ",sai_sot:"Sai sót",mau_thuan:"Mâu thuẫn",sai_lech_buoc_truoc:"Lệch bước trước",het_hieu_luc:"Hết hiệu lực",the_thuc:"Thể thức",khac:"Khác"};
 const KL={dat:["g","Đạt"],can_sua:["r","Cần sửa"],khong_du_du_lieu:["a","Chưa đủ dữ liệu"]};
-const CK_KIND={ho_so:"Kiểm tra hồ sơ của bước",ket_qua:"Đối chiếu kết quả scan",du_thao:"Kiểm tra dự thảo"};
+const CK_KIND={ho_so:"Kiểm tra hồ sơ của bước",ket_qua:"Đối chiếu kết quả scan",du_thao:"Kiểm tra dự thảo",tep:"Kiểm tra tệp vừa tải"};
+// kết quả AI kiểm tra của từng tệp (tự chạy ngay sau khi tải lên): bấm → sang thẻ AI kiểm tra để xem chi tiết
+function fileCheck(f,checks){
+  const c=checks.find(c=>c.target_id===f.id&&(c.kind==="tep"||c.kind==="ket_qua"));if(!c)return "";
+  const n=c.result?.canh_bao?.length||0,t=c.status==="dang"?"~b:AI đang kiểm tra tệp…":c.status==="loi"?"~r:AI kiểm tra lỗi":c.status==="da_xu_ly"?"~g:Đã xử lý cảnh báo":n?`~r:⚠ ${n} cảnh báo`:"~g:✓ AI không thấy vấn đề";
+  return `<button type="button" class="fchkp" data-fck="${c.id}" title="${esc(c.result?.tom_tat||"Xem chi tiết kết quả AI kiểm tra")}">${pill(t)}</button>`;
+}
 
 const curProj=()=>ST.proj||ST.ref?.projects[0]?.id||null;
 const projOf=id=>ST.ref?.projects.find(p=>p.id===id);
@@ -720,12 +726,15 @@ async function buildFullHtml(){
   const pid=ovProj()?.id||curProj(),Q=qs({project:pid}),snap={};
   const get=async u=>{snap[u]=await api("GET",u);return snap[u]};
   const steps=await get("/api/steps"+Q);
-  await Promise.all(["/api/me","/api/ref","/api/overview"+Q,"/api/today"+Q,"/api/checklist"+Q,`/api/projects/${pid}/info`,"/api/docs"+Q,"/api/households"+Q,"/api/tpl"].map(get));
+  await Promise.all(["/api/me","/api/ref","/api/overview"+Q,"/api/today"+Q,"/api/checklist"+Q,`/api/projects/${pid}/info`,"/api/docs"+Q,"/api/households"+Q,"/api/tpl","/api/events"+Q,"/api/events","/api/extensions"+Q].map(get));
   for(let i=0;i<steps.length;i+=12)await Promise.all(steps.slice(i,i+12).map(s=>get("/api/steps/"+s.id)));
   for(const d of snap["/api/docs"+Q])await get("/api/docs/"+d.id);
+  snap["/api/ai-chats"]=[];   // bản xem không có hội thoại AI — tránh báo «không có dữ liệu» ở màn Trợ lý AI
   const txt=async u=>(await fetch(u,{cache:"no-store"})).text();
   const dataUrl=async u=>{const b=await (await fetch(u)).blob();return await new Promise(r=>{const f=new FileReader();f.onload=()=>r(f.result);f.readAsDataURL(b)})};
-  let [html,css,vb,js,gold]=await Promise.all([txt("index.html"),txt("app.css"),txt("vanban.js"),txt("app.js"),dataUrl("logo-gold.png")]);
+  let [html,css,vb,js,gold,gpmb,dtxd]=await Promise.all([txt("index.html"),txt("app.css"),txt("vanban.js"),txt("app.js"),dataUrl("logo-gold.png"),dataUrl("gpmb.jpg"),dataUrl("dtxd.jpg")]);
+  // ảnh thẻ GPMB / DTXD nhúng vào tệp (gửi một tệp qua Zalo / email vẫn có ảnh)
+  js=js.replace(/,CK_IMG=\{GPMB:"gpmb\.jpg",DTXD:"dtxd\.jpg"\}/,()=>`,CK_IMG={GPMB:${JSON.stringify(gpmb)},DTXD:${JSON.stringify(dtxd)}}`);
   // api() trả số liệu đã chụp; thao tác ghi báo «chỉ xem»
   // thay bằng hàm (không dùng chuỗi thay thế: mã nguồn có «$'», «$&» sẽ bị hiểu là ký hiệu đặc biệt)
   js=js.replace("async function api(method,url,body){",()=>"async function api(method,url,body){if(window.__SNAP)return __snapApi(method,url,body);");
@@ -1024,7 +1033,7 @@ function stepWork(s){
           ${i.supp?`<small class="supl"><span class="pill p-t">Bổ sung</span> Lý do: ${esc(i.reason||"")}${i.req_by?` · Yêu cầu: ${esc(i.req_by)}`:""}${i.start_on?` · từ ${dmy(i.start_on)}`:""}</small>`:""}${dueI&&!i.na?`<small class="${od?"err-t":"muted"}">${od?"⚠ Quá hạn — ":i.supp?"Hạn bổ sung: ":"Hạn: "}${dmy(dueI)}</small>`:""}${i.basis?`<small class="muted">Căn cứ: ${esc(i.basis)}</small>`:""}${i.ref_text?`<small>Văn bản đã có: <b>${esc(i.ref_text)}</b></small>`:""}${i.note?`<small class="muted">${esc(i.note)}</small>`:""}
           ${cur.length?`<ul class="flist">${cur.map(f=>`<li>${ico("file")}<a href="/api/file/${f.id}" target="_blank" rel="noopener">${esc(f.name)}</a><small>${kb(f.size||0)} · ${esc(f.uploader||"")} · ${hm(f.uploaded_at)}</small>${f.origin==="tai_len"?pill(P(AIS[f.ai_status])):pill(f.origin==="du_thao"?"~g:Dự thảo đã chốt":"~g:Xuất từ bảng bồi thường")}
             ${act(...W)&&f.origin==="tai_len"?`<button class="x" type="button" title="Thay bằng phiên bản mới" data-rep="${i.id}:${f.id}">${ico("upload")}</button>`:""}${act(...W)&&!(f.origin==="du_thao")?`<button class="x" type="button" title="Xóa tệp" data-fdel="${f.id}">${ico("x")}</button>`:""}
-            ${ST.ref.ai&&f.origin==="tai_len"&&["loi","tat"].includes(f.ai_status)&&act(...W)?`<button class="btn sm" type="button" data-fai="${f.id}">AI đọc lại</button>`:""}${ST.ref.ai&&i.kind==="ket_qua"&&f.ai_status==="xong"&&act(...W)?`<button class="btn sm" type="button" data-fchk="${f.id}">${ico("spark")}Đối chiếu lại</button>`:""}
+            ${ST.ref.ai&&f.origin==="tai_len"&&["loi","tat"].includes(f.ai_status)&&act(...W)?`<button class="btn sm" type="button" data-fai="${f.id}">AI đọc lại</button>`:""}${fileCheck(f,s.checks)}${ST.ref.ai&&f.origin==="tai_len"&&f.ai_status==="xong"&&act(...W)?`<button class="btn sm" type="button" data-fchk="${f.id}">${ico("spark")}${i.kind==="ket_qua"?"Đối chiếu lại":"AI kiểm tra lại"}</button>`:""}
             ${f.ai_error?`<small class="err-t">${esc(f.ai_error)}</small>`:""}${factsHtml(f)}</li>`).join("")}</ul>`:""}
           ${old.length?`<details class="muted" style="font-size:12px"><summary>${old.length} phiên bản cũ</summary>${old.map(f=>`<a href="/api/file/${f.id}" target="_blank" rel="noopener">${esc(f.name)}</a> · ${hm(f.uploaded_at)}`).join("<br>")}</details>`:""}</div>
           <div class="ia">${act(...W)&&!i.na?`<button class="btn sm" type="button" data-up="${i.id}">${ico("upload")}Tải lên</button>`:""}${i.kind==="soan"&&!i.na&&!i.tag?`<button class="btn sm" type="button" data-soan="${i.id}" ${act(...W)?"":"disabled"}>${ico("edit")}Soạn</button>`:""}${i.tag?`<button class="btn sm" type="button" data-go="screen-09-05">${ico("users")}Xuất từng hộ</button>`:""}<button class="btn sm" type="button" data-ied="${i.id}" ${act(...W)?"":"disabled"} aria-label="Sửa mục">…</button></div></li>`}).join("")}</ul></div>`}).join("");
@@ -1043,7 +1052,7 @@ function stepWork(s){
 }
 function checkCard(c){
   const r=c.result||{},W_=r.canh_bao||[];
-  return `<div class="card ccard" style="margin-bottom:12px"><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><b>${esc(CK_KIND[c.kind])}</b>${c.status==="dang"?pill("~b:AI đang kiểm tra…"):c.status==="loi"?pill("~r:Lỗi"):c.status==="da_xu_ly"?pill("~g:Đã xử lý"):pill(P(KL[r.ket_luan]||["n","—"]))}
+  return `<div class="card ccard" data-ckid="${c.id}" style="margin-bottom:12px"><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><b>${esc(CK_KIND[c.kind])}</b>${c.kind==="tep"&&c.file_name?`<small>«${esc(c.file_name)}»</small>`:""}${c.status==="dang"?pill("~b:AI đang kiểm tra…"):c.status==="loi"?pill("~r:Lỗi"):c.status==="da_xu_ly"?pill("~g:Đã xử lý"):pill(P(KL[r.ket_luan]||["n","—"]))}
     <small class="muted">${hm(c.created_at)}${c.by_name?" · "+esc(c.by_name):" · tự động"}</small><span style="flex:1"></span>${c.status==="xong"&&act(...W)?`<button class="btn sm" type="button" data-hdl="${c.id}">Đánh dấu đã xử lý</button>`:""}</div>
     ${c.status==="loi"?`<p class="err-t">${esc(c.error||"")}</p>`:""}${r.tom_tat?`<p style="margin:8px 0">${esc(r.tom_tat)}</p>`:""}
     ${W_.length?`<ul class="wlist">${W_.map(w=>`<li><span class="pill p-${(MUC[w.muc_do]||MUC.thap)[0]}">${(MUC[w.muc_do]||MUC.thap)[1]}</span><div><b>${esc(WL[w.loai]||w.loai)}:</b> ${esc(w.noi_dung)}${w.ho_so?.length?`<small class="muted">Hồ sơ: ${w.ho_so.map(esc).join("; ")}</small>`:""}${w.de_xuat?`<small>→ ${esc(w.de_xuat)}</small>`:""}</div></li>`).join("")}</ul>`:c.status==="xong"||c.status==="da_xu_ly"?`<p class="muted">Không phát hiện sai sót, mâu thuẫn.</p>`:""}
@@ -1062,7 +1071,8 @@ function bindStep(s){
   $$("[data-rep]").forEach(b=>b.onclick=async()=>{const [iid,fid]=b.dataset.rep.split(":");const fs_=await pickFiles(false);if(!fs_.length)return;try{await upload(`/api/items/${iid}/files`,fs_,{replace:fid});toast("Đã thay phiên bản mới"+(ST.ref.ai?" — AI kiểm tra lại":""));re()}catch(x){toast(x.message)}});
   $$("[data-fdel]").forEach(b=>b.onclick=()=>confirmBox("Xóa tệp?","Tệp bị xóa khỏi checklist và máy chủ.","Xóa",true,async()=>{await api("DELETE","/api/files/"+b.dataset.fdel);re()}));
   $$("[data-fai]").forEach(b=>b.onclick=async()=>{await api("POST",`/api/files/${b.dataset.fai}/ai`,{});re()});
-  $$("[data-fchk]").forEach(b=>b.onclick=async()=>{try{await api("POST",`/api/files/${b.dataset.fchk}/ai`,{what:"check"});ST.tab.step="ai";re();toast("AI đang đối chiếu kết quả")}catch(x){toast(x.message)}});
+  $$("[data-fchk]").forEach(b=>b.onclick=async()=>{try{await api("POST",`/api/files/${b.dataset.fchk}/ai`,{what:"check"});ST.tab.step="ai";re();toast("AI đang kiểm tra tệp với hồ sơ liên quan và quy định hiện hành")}catch(x){toast(x.message)}});
+  $$("[data-fck]").forEach(b=>b.onclick=()=>{ST.tab.step="ai";render();setTimeout(()=>$(`[data-ckid="${b.dataset.fck}"]`)?.scrollIntoView({block:"center",behavior:"smooth"}),50)});
   $$("[data-ied]").forEach(b=>b.onclick=()=>editItem(s,s.items.find(i=>i.id===b.dataset.ied)));
   $("#ckAdd")&&($("#ckAdd").onclick=()=>editItem(s,null));
   $("#ckSupp2")&&($("#ckSupp2").onclick=e=>suppMenu(e.currentTarget,s));
@@ -1182,12 +1192,12 @@ function docEditor(d){
   const F=(k,label,v,o={})=>`<div class="fld ${o.full?"full":""}"><label for="de-${k}">${label}</label>${o.ta?`<textarea id="de-${k}" ${ro?"disabled":""} style="${o.h?"min-height:"+o.h+"px":""}">${esc(v||"")}</textarea>`:`<input id="de-${k}" value="${esc(v||"")}" ${ro?"disabled":""}>`}</div>`;
   return `<div class="card" style="margin-bottom:12px"><div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center"><b style="font-size:16px">${esc(VB.LOAI[d.kind]?.name)}: ${esc(d.subject)}</b>${d.status==="chot"?pill("~g:Đã chốt · trong checklist"):pill("~a:Nháp")}<small class="muted">${esc(d.project_code)} · ${esc(d.step_name)}${d.item_name?" · mục: "+esc(d.item_name):""} · v${d.version} · ${esc(d.author||"")}${d.by_ai?" · AI soạn":""}</small><span style="flex:1"></span>
     <a class="btn sm" href="#" data-go="screen-09-03" data-sel="${d.step_id}">${ico("check")}Hồ sơ của bước</a></div>
-    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">${d.status==="nhap"?`${wbtn("deSave","Lưu",{pri:1})}${wbtn("deChk",running?"AI đang kiểm tra…":"AI kiểm tra",{icon:"spark",dis:!ST.ref.ai||running,title:aiOff()})}${wbtn("deChot","Chốt văn bản",{icon:"check"})}`:wbtn("deOpen","Mở lại để sửa",{icon:"edit"})}
+    <div style="display:flex;gap:6px;flex-wrap:wrap;margin-top:10px">${d.status==="nhap"?`${wbtn("deSave","Lưu",{pri:1})}${wbtn("deRe","AI soạn lại",{icon:"spark",dis:!ST.ref.ai,title:ST.ref.ai?"AI soạn lại theo hồ sơ mới nhất của các bước và tra cứu mẫu, căn cứ pháp lý mới nhất":aiOff()})}${wbtn("deChk",running?"AI đang kiểm tra…":"AI kiểm tra",{icon:"spark",dis:!ST.ref.ai||running,title:aiOff()})}${wbtn("deChot","Chốt văn bản",{icon:"check"})}`:wbtn("deOpen","Mở lại để sửa",{icon:"edit"})}
       <button class="btn sm" type="button" id="deLook" title="Tra cứu mẫu và căn cứ pháp lý trên Internet">${ico("spark")}Tra cứu mẫu & căn cứ</button><button class="btn sm" type="button" id="deWord">${ico("file")}Tải Word</button><button class="btn sm" type="button" id="dePrint">${ico("print")}In</button><span style="flex:1"></span>
       <label class="dekind"><span>Loại văn bản</span><select class="sel" id="de-kind" ${ro?"disabled":""}>${VBK.map(o=>`<option value="${o[0]}" ${o[0]===d.kind?"selected":""}>${esc(o[1])}</option>`).join("")}</select></label>${d.status==="nhap"?wbtn("deDel","Xóa",{cls:"dan"}):""}</div></div>
   ${d.auto&&d.status==="nhap"?banner("b","Hệ thống tự soạn theo mẫu và tự cập nhật khi dữ liệu dự án thay đổi (thông tin chủ đầu tư, số quyết định trong checklist, bảng bồi thường). Khi bạn sửa và lưu, văn bản thôi tự cập nhật."):""}${d.to_check?.length&&d.status==="nhap"?`<div class="banner b-a" style="margin-bottom:12px">${ico("warn")}<span><b>Cần kiểm tra / bổ sung:</b><ul style="margin:4px 0 0;padding-left:18px">${d.to_check.map(x=>`<li>${esc(x)}</li>`).join("")}</ul></span></div>`:""}
   ${running?banner("b","AI đang đối chiếu dự thảo với hồ sơ liên quan…"):last?checkCard(last):""}
-  <div class="ed2 solo"><div class="card" hidden><div class="fgrid">
+  <div class="ed2 solo dewrap"><div class="card" hidden><div class="fgrid">
     ${F("number_text","Số, ký hiệu",d.number_text)}${F("issuer","Cơ quan chủ quản (dòng trên)",d.issuer)}${F("unit","Cơ quan / đơn vị ban hành",d.unit)}${F("place","Địa danh",d.place)}${F("date_text","Ngày tháng",d.date_text)}
     ${F("subject","Trích yếu",d.subject,{full:1})}${F("authority","Thẩm quyền ban hành (quyết định)",d.authority,{full:1})}
     ${F("recipients","Kính gửi (mỗi nơi một dòng)",lines(d.recipients),{ta:1,full:1})}${F("bases","Căn cứ (mỗi dòng một căn cứ)",lines(d.bases),{ta:1,full:1})}
@@ -1196,14 +1206,31 @@ function docEditor(d){
     ${F("s1t","Chức vụ người ký",sg[0].title,{ta:1})}${F("s1n","Họ tên người ký",sg[0].name)}${F("s2t","Người ký thứ 2 (biên bản)",sg[1].title,{ta:1})}${F("s2n","Họ tên người ký thứ 2",sg[1].name)}</div></div>
     <div class="card"><h3>${ro?"Văn bản (A4, thể thức NĐ 30/2020)":`Sửa trực tiếp trên văn bản <small style="color:var(--muted);font-weight:400">· bấm vào chữ để sửa · chỗ <mark class="edhint">tô vàng</mark> là cần bổ sung</small>`}</h3>
     ${ro?"":`<div id="deFill"></div>`}<div class="paper ${ro?"":"edpaper"}" id="dePrev" ${ro?"":'data-edit="1"'}>${VB.render(d,{edit:!ro})}</div>
-    ${d.cites?.length?`<div class="cites"><small class="muted">Nguồn (Thư viện Pháp luật):</small> ${d.cites.map(c=>{const m=/^(.*?)\s*·\s*(https?:\/\/\S+)$/.exec(c);return m?`<a class="cite" href="${esc(m[2])}" target="_blank" rel="noopener">${esc(m[1])}</a>`:`<span class="cite">${esc(c)}</span>`}).join("")}</div>`:""}${d.request?`<details class="muted" style="font-size:12.5px;margin-top:8px"><summary>Yêu cầu khi soạn</summary><p class="pre">${esc(d.request)}</p></details>`:""}</div></div>`;
+    ${d.cites?.length?`<div class="cites"><small class="muted">Nguồn AI đã dùng / tra cứu:</small> ${d.cites.map(c=>{const m=/^(.*?)\s*·\s*(https?:\/\/\S+)$/.exec(c);return m?`<a class="cite" href="${esc(m[2])}" target="_blank" rel="noopener">${esc(m[1])}</a>`:`<span class="cite">${esc(c)}</span>`}).join("")}</div>`:""}${d.request?`<details class="muted" style="font-size:12.5px;margin-top:8px"><summary>Yêu cầu khi soạn</summary><p class="pre">${esc(d.request)}</p></details>`:""}</div>
+    <aside class="card desrc">${srcPanel(d,ro)}</aside></div>`;
+}
+// căn cứ soạn thảo: hồ sơ của bước này và các bước trước (nội dung AI đã trích), số văn bản đã có, căn cứ pháp lý của thủ tục — bấm «+ Căn cứ» để đưa vào phần căn cứ
+const ngay_=s=>/^\d{4}-\d{2}-\d{2}/.test(s||"")?dmy(s.slice(0,10)):s;
+const baseOfFile=x=>`Căn cứ ${[x.loai||"Văn bản",x.so&&"số "+x.so,x.ngay&&"ngày "+ngay_(x.ngay),x.co_quan&&"của "+x.co_quan,x.trich_yeu&&"về "+VB.lc1(String(x.trich_yeu).replace(/^(v\/v|về)\s*/i,""))].filter(Boolean).join(" ")};`;
+const baseOfLaw=b=>`Căn cứ ${b.title}${b.so&&!String(b.title).includes(b.so)?" số "+b.so:""};`;
+function srcPanel(d,ro){
+  const S=d.sources||{files:[],refs:[],basis:[]},add=t=>ro?"":`<button type="button" class="btn sm" data-ins="${esc(t)}" title="${esc(t)}">+ Căn cứ</button>`;
+  const fl=f=>`<li><div><a href="/api/file/${f.id}" target="_blank" rel="noopener"><b>${esc(f.name)}</b></a><small>${esc(f.same?f.item:f.step+" · "+f.item)}</small>
+    ${f.loai||f.so||f.trich_yeu?`<small class="srcf">${esc([f.loai,f.so&&"số "+f.so,f.ngay&&"ngày "+ngay_(f.ngay),f.co_quan].filter(Boolean).join(" · "))}${f.trich_yeu?` — ${esc(f.trich_yeu)}`:""}</small>`:`<small class="muted">AI chưa đọc nội dung tệp</small>`}</div>${f.so||f.trich_yeu?add(baseOfFile(f)):""}</li>`;
+  const same=S.files.filter(f=>f.same),prev=S.files.filter(f=>!f.same);
+  return `<h3>Căn cứ soạn thảo</h3><p class="muted" style="font-size:12.5px;margin:0 0 10px">AI lấy thông tin từ các hồ sơ dưới đây khi soạn${ro?"":"; bấm «+ Căn cứ» để đưa vào phần căn cứ của văn bản"}.</p>
+    <details class="srcg" open><summary>Hồ sơ của bước này <small>${same.length}</small></summary>${same.length?`<ul class="srcl">${same.map(fl).join("")}</ul>`:`<p class="muted">Chưa có tệp.</p>`}</details>
+    <details class="srcg" ${same.length?"":"open"}><summary>Hồ sơ các bước trước <small>${prev.length}</small></summary>${prev.length?`<ul class="srcl">${prev.map(fl).join("")}</ul>`:`<p class="muted">Chưa có tệp.</p>`}</details>
+    ${S.refs.length?`<details class="srcg"><summary>Số văn bản đã ghi trong checklist <small>${S.refs.length}</small></summary><ul class="srcl">${S.refs.map(r=>`<li><div><b>${esc(r.ref_text)}</b><small>${esc(r.step)} · ${esc(r.name)}</small></div></li>`).join("")}</ul></details>`:""}
+    <details class="srcg" open><summary>Căn cứ pháp lý của thủ tục <small>${S.basis.length}</small></summary>${S.basis.length?`<ul class="srcl">${S.basis.map(b=>`<li><div><b>${esc(b.title)}</b><small>${esc(b.so||"")}${b.dieu?" · "+esc(b.dieu):""}</small>${pill(/HẾT/.test(b.hieu_luc)?"~r:Hết hiệu lực":/chưa có hiệu/.test(b.hieu_luc)?"~a:Chưa có hiệu lực":/còn hiệu lực/.test(b.hieu_luc)?"~g:Còn hiệu lực":"~b:Chưa rõ hiệu lực")}</div>${/HẾT/.test(b.hieu_luc)?"":add(baseOfLaw(b))}</li>`).join("")}</ul>`:`<p class="muted">Thủ tục chưa gắn căn cứ trong danh mục. «AI soạn lại» sẽ tự tra cứu căn cứ mới nhất.</p>`}</details>`;
 }
 function bindEditor(d){
   const val=()=>({kind:$("#de-kind").value,number_text:$("#de-number_text").value,issuer:$("#de-issuer").value,unit:$("#de-unit").value,place:$("#de-place").value,date_text:$("#de-date_text").value,
     subject:$("#de-subject").value,authority:$("#de-authority").value,recipients:VB.lines($("#de-recipients").value),bases:VB.lines($("#de-bases").value),body:$("#de-body").value,receivers:VB.lines($("#de-receivers").value),
     signers:[{title:$("#de-s1t").value,name:$("#de-s1n").value},{title:$("#de-s2t").value,name:$("#de-s2n").value}].filter(s=>s.title.trim()||s.name.trim())});
   let dirtyEd=false;
-  const EDIT=!!$("#dePrev")?.dataset.edit,prevDraw=()=>{$("#dePrev").innerHTML=VB.render({...d,...val()},{edit:EDIT})};
+  // đã rời màn soạn (vd bấm chuyển trang khi đang sửa) thì thôi vẽ lại
+  const EDIT=!!$("#dePrev")?.dataset.edit,prevDraw=()=>{const pv=$("#dePrev");if(!pv||!$("#de-kind"))return;pv.innerHTML=VB.render({...d,...val()},{edit:EDIT})};
   $$("#cv .ed2 input,#cv .ed2 textarea,#de-kind").forEach(el=>el.addEventListener("input",()=>{dirtyEd=true;prevDraw();drawFill()}));
   // sửa trực tiếp trên bản A4: mỗi vùng [data-f] ghi ngược vào ô tương ứng (không vẽ lại bản xem trước để giữ con trỏ)
   if(EDIT){
@@ -1223,9 +1250,10 @@ function bindEditor(d){
     pv.addEventListener("focusout",()=>setTimeout(()=>{if(!pv.contains(document.activeElement))prevDraw()},0));
   }
   // Thông tin cần bổ sung: mỗi «[cần bổ sung: …]» thành một ô; điền là thay vào mọi chỗ trong văn bản
-  const FF=["subject","number_text","place","date_text","unit","authority","recipients","bases","body","receivers","s1t","s1n"].map(k=>$("#de-"+k)).filter(Boolean),RE=/\[cần bổ sung:\s*([^\]]+)\]/g;
+  const FF=["subject","number_text","place","date_text","unit","authority","recipients","bases","body","receivers","s1t","s1n"].map(k=>$("#de-"+k)).filter(Boolean),RE=/\[[^\]\n]{1,200}\]/g;
+  const holes=()=>FF.reduce((a,el)=>a+[...el.value.matchAll(RE)].length,0);
   // dòng đếm chỗ «[cần bổ sung: …]» còn lại (điền hết mới chốt được); bấm → nhảy tới chỗ tô vàng tiếp theo và chọn sẵn để gõ đè
-  function drawFill(){const box=$("#deFill");if(!box)return;const n=FF.reduce((a,el)=>a+[...el.value.matchAll(RE)].length,0);
+  function drawFill(){const box=$("#deFill");if(!box)return;const n=holes();
     box.className="defill "+(n?"todo":"ok");
     box.innerHTML=n?`${ico("warn")}<span>Còn <b>${n}</b> chỗ tô vàng cần bổ sung — điền xong mới chốt được</span><button type="button" class="lnk" id="deNext">Tới chỗ tiếp theo</button>`:`${ico("check")}<span>Đã đủ thông tin — kiểm tra lại rồi bấm <b>Chốt văn bản</b>, bản PDF tự vào checklist hồ sơ.</span>`;
     const nx=$("#deNext");nx&&(nx.onclick=()=>{const ms=$$("#dePrev mark");if(!ms.length)return;const a=document.activeElement,i=ms.findIndex(m=>a&&a.contains(m)&&getSelection().containsNode(m,true));const m=ms[(i+1)%ms.length];
@@ -1233,9 +1261,22 @@ function bindEditor(d){
   drawFill();
   const save=async()=>{const r=await api("PUT","/api/docs/"+d.id,val());dirtyEd=false;return r};
   const cur=()=>({...d,...(d.status==="nhap"?val():{})});
-  $("#deSave")&&($("#deSave").onclick=e=>busy(e.target,"Đang lưu…",async()=>{try{await save();dirty("03");toast("Đã lưu")}catch(x){toast(x.message)}}));
+  // lưu sau khi bổ sung: điền đủ chỗ trống thì AI tự kiểm tra lại nội dung với hồ sơ liên quan và quy định hiện hành
+  $("#deSave")&&($("#deSave").onclick=e=>busy(e.target,"Đang lưu…",async()=>{try{const changed=dirtyEd;await save();dirty("03");
+    if(changed&&ST.ref.ai&&!holes()){await api("POST",`/api/docs/${d.id}/check`);toast("Đã lưu — AI đang kiểm tra lại nội dung vừa bổ sung…");refreshQuiet()}else toast(holes()?`Đã lưu — còn ${holes()} chỗ cần bổ sung`:"Đã lưu")}catch(x){toast(x.message)}}));
   $("#deChk")&&($("#deChk").onclick=e=>busy(e.target,"Đang gửi…",async()=>{try{if(dirtyEd)await save();await api("POST",`/api/docs/${d.id}/check`);toast("AI đang kiểm tra dự thảo với hồ sơ liên quan…");refreshQuiet()}catch(x){toast(x.message)}}));
-  $("#deChot")&&($("#deChot").onclick=()=>confirmBox("Chốt văn bản?","Lưu nội dung, in bản PDF theo thể thức và gắn vào checklist hồ sơ của bước. Sau khi chốt muốn sửa phải mở lại.","Chốt",false,async()=>{await save();await api("POST",`/api/docs/${d.id}/chot`);dirty("01","03");refreshQuiet();toast("Đã chốt — bản PDF đã vào checklist")}));
+  $("#deRe")&&($("#deRe").onclick=()=>formModal({title:"AI soạn lại văn bản",intro:"AI soạn lại toàn bộ theo hồ sơ mới nhất của bước này và các bước trước, tra cứu mẫu và căn cứ pháp lý mới nhất trên trang pháp luật chính thống (1–3 phút). Nội dung đang sửa sẽ được thay.",
+    fields:[{k:"request",label:"Yêu cầu thêm cho AI (không bắt buộc)",type:"textarea",ph:"vd: nêu rõ diện tích 2,3 ha theo QĐ chủ trương; đề nghị giải quyết trước 30/11; bỏ phần …"}],okLabel:"AI soạn lại",
+    onSubmit:async v=>{const sb=$(".ov:last-of-type button[type=submit]");sb&&(sb.textContent="AI đang soạn… (1–3 phút)");await api("POST",`/api/docs/${d.id}/redraft`,{request:v.request});dirtyEd=false;dirty("03");refreshQuiet();toast("AI đã soạn lại — kiểm tra, bổ sung rồi chốt")}}));
+  // + Căn cứ: thêm một dòng căn cứ (không trùng) rồi vẽ lại bản A4
+  $$("[data-ins]").forEach(b=>b.onclick=()=>{const el=$("#de-bases"),t=b.dataset.ins,L=VB.lines(el.value);if(L.includes(t))return toast("Căn cứ này đã có trong văn bản");
+    el.value=[...L,t].join("\n");el.dispatchEvent(new Event("input",{bubbles:true}));toast("Đã thêm vào phần căn cứ — bấm Lưu")});
+  // chốt: còn chỗ trống thì không cho; AI chưa kiểm tra bản mới nhất hoặc còn cảnh báo chưa xử lý thì hỏi lại
+  $("#deChot")&&($("#deChot").onclick=()=>{
+    const n=holes();if(n){toast(`Còn ${n} chỗ tô vàng cần bổ sung trước khi chốt`);$("#deNext")?.click();return}
+    const last_=d.checks.find(c=>c.status!=="dang"),stale=!last_||dirtyEd||new Date(last_.created_at)<new Date(d.updated_at)-5e3,W_=last_?.status==="xong"?last_.result?.canh_bao||[]:[];
+    const msg=[stale&&ST.ref.ai?"AI chưa kiểm tra bản mới nhất của văn bản này.":"",W_.length?`Lần AI kiểm tra gần nhất còn ${W_.length} cảnh báo chưa xử lý: ${W_.slice(0,3).map(w=>w.noi_dung).join(" | ")}${W_.length>3?" …":""}`:""].filter(Boolean).join(" ");
+    confirmBox(msg?"Chốt khi chưa kiểm tra xong?":"Chốt văn bản?",(msg?msg+" ":"")+"Chốt sẽ lưu nội dung, in bản PDF theo thể thức và gắn vào checklist hồ sơ của bước. Sau khi chốt muốn sửa phải mở lại.",msg?"Vẫn chốt":"Chốt",!!msg,async()=>{await save();await api("POST",`/api/docs/${d.id}/chot`);dirty("01","03");refreshQuiet();toast("Đã chốt — bản PDF đã vào checklist hồ sơ")})});
   $("#deOpen")&&($("#deOpen").onclick=()=>confirmBox("Mở lại văn bản?","Bản PDF trong checklist chuyển thành phiên bản cũ; chốt lại sau khi sửa.","Mở lại",false,async()=>{await api("POST",`/api/docs/${d.id}/reopen`);dirty("03");refreshQuiet()}));
   $("#deDel")&&($("#deDel").onclick=()=>confirmBox("Xóa dự thảo?","Không hoàn tác được.","Xóa",true,async()=>{await api("DELETE","/api/docs/"+d.id);ST.sel["screen-09-04"]=null;dirty("03");reload()}));
   $("#deLook").onclick=()=>aiAsk(lookQ(cur().subject,d.step_name,VB.LOAI[cur().kind]?.name));

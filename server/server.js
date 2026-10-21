@@ -577,7 +577,7 @@ route('GET', '/api/steps/:id', async ({ user, params }) => {
     s.procedure_id ? one(`SELECT * FROM pl_procedure WHERE id = $1`, [s.procedure_id]) : null,
     q(`SELECT * FROM pl_item WHERE step_id = $1 ORDER BY CASE kind WHEN 'soan' THEN 0 WHEN 'dau_vao' THEN 1 ELSE 2 END, ord, created_at`, [s.id]),
     q(`SELECT ${FILE_COLS} FROM pl_file f LEFT JOIN app_user u ON u.id = f.uploaded_by WHERE f.step_id = $1 ORDER BY f.uploaded_at`, [s.id]),
-    q(`SELECT c.*, u.full_name AS by_name, h.full_name AS handler FROM pl_check c LEFT JOIN app_user u ON u.id = c.created_by LEFT JOIN app_user h ON h.id = c.handled_by WHERE c.step_id = $1 ORDER BY c.created_at DESC LIMIT 40`, [s.id]),
+    q(`SELECT c.*, u.full_name AS by_name, h.full_name AS handler, (SELECT f.name FROM pl_file f WHERE f.id = c.target_id) AS file_name FROM pl_check c LEFT JOIN app_user u ON u.id = c.created_by LEFT JOIN app_user h ON h.id = c.handled_by WHERE c.step_id = $1 ORDER BY c.created_at DESC LIMIT 40`, [s.id]),
     q(`SELECT d.id, d.item_id, d.kind, d.subject, d.status, d.by_ai, d.version, d.updated_at, d.chot_at, u.full_name AS author FROM pl_doc d LEFT JOIN app_user u ON u.id = d.created_by WHERE d.step_id = $1 ORDER BY d.created_at DESC`, [s.id]),
     stepRows([s.project_id]),
     s.procedure_id ? q(`SELECT d.number_text, d.title, d.effective_from, d.effective_to, d.src_status, b.article_text FROM pl_procedure_basis b JOIN pl_legal_doc d ON d.src_id = b.legal_src_id WHERE b.procedure_id = $1`, [s.procedure_id]) : [],
@@ -794,7 +794,7 @@ route('POST', '/api/files/:id/ai', async ({ user, params, body }) => {
   const f = notFound(await one(`SELECT f.*, s.project_id FROM pl_file f JOIN pl_step s ON s.id = f.step_id WHERE f.id = $1`, [params.id]), 'tệp');
   await must(user, f.project_id, ...W);
   if (!AI.enabled()) bad('AI đang tắt (chưa có ANTHROPIC_API_KEY)');
-  if (body.what === 'check') { const i = await one(`SELECT * FROM pl_item WHERE id = $1`, [f.item_id]); return startCheck(user, { ...i, project_id: f.project_id }, 'ket_qua', f.id); }
+  if (body.what === 'check') { const i = await one(`SELECT * FROM pl_item WHERE id = $1`, [f.item_id]); return startCheck(user, { ...i, project_id: f.project_id }, i.kind === 'ket_qua' ? 'ket_qua' : 'tep', f.id); }
   await q(`UPDATE pl_file SET ai_status = 'cho', ai_error = NULL WHERE id = $1`, [f.id]);
   enqueue(() => extractFile(f.id));
   return { ok: true };
@@ -824,6 +824,8 @@ function afterUpload(item, ids, user) {
   enqueue(async () => {
     await Promise.all(ids.map(extractFile));
     if (item.kind === 'ket_qua') { for (const id of ids) await runCheck(await newCheck(user, item.step_id, 'ket_qua', id)); return; }
+    // hồ sơ đầu vào / văn bản tải lên: AI kiểm tra ngay từng tệp (đối chiếu hồ sơ cùng bước, bước trước, quy định hiện hành)
+    for (const id of ids) await runCheck(await newCheck(user, item.step_id, 'tep', id));
     // chỉ việc đọc tệp cuối cùng của đợt tải mới kích hoạt kiểm tra (tránh kiểm tra trùng khi tải nhiều tệp liên tiếp)
     const pending = await one(`SELECT 1 FROM pl_file WHERE step_id = $1 AND current AND ai_status IN ('cho','dang')`, [item.step_id]);
     if (pending) return;
@@ -877,7 +879,10 @@ async function runCheck(id) {
     const pack = (fs_) => fs_.map(f => ({ name: f.name, label: `${f.name} — ${ctx.items.find(i => i.id === f.item_id)?.name || ''}`, mime: f.mime, buffer: readStored(f.stored) }));
     let r;
     if (c.kind === 'ho_so') r = await AI.check(ctx.text, pack(ctx.files.filter(f => ctx.items.find(i => i.id === f.item_id)?.kind !== 'ket_qua')));
-    else if (c.kind === 'ket_qua') {
+    else if (c.kind === 'tep') {
+      const f = notFound(await one(`SELECT f.*, i.name AS item FROM pl_file f JOIN pl_item i ON i.id = f.item_id WHERE f.id = $1`, [c.target_id]), 'tệp');
+      r = await AI.checkFile(ctx.text, f, readStored(f.stored));
+    } else if (c.kind === 'ket_qua') {
       const f = notFound(await one(`SELECT * FROM pl_file WHERE id = $1`, [c.target_id]), 'tệp kết quả');
       r = await AI.checkResult(ctx.text, f, readStored(f.stored), pack(ctx.files.filter(x => x.id !== f.id && ctx.items.find(i => i.id === x.item_id)?.kind !== 'ket_qua')));
     } else {
@@ -995,7 +1000,34 @@ route('GET', '/api/docs', async ({ user, query }) => {
 route('GET', '/api/docs/:id', async ({ user, params }) => {
   const d = await docOf(user, params.id);
   const checks = await q(`SELECT * FROM pl_check WHERE kind = 'du_thao' AND target_id = $1 ORDER BY created_at DESC LIMIT 10`, [d.id]);
-  return { ...d, checks };
+  return { ...d, checks, sources: await docSources(d.step_id) };
+});
+// nguồn soạn thảo: hồ sơ đã có của bước này và các bước trước (nội dung AI đã trích) + căn cứ pháp lý của thủ tục
+async function docSources(stepId) {
+  const step = await one(`SELECT * FROM pl_step WHERE id = $1`, [stepId]);
+  const prev = await ancestors(step), ids = [step.id, ...prev.map(x => x.id)];
+  const files = await q(`SELECT f.id, f.name, f.step_id, f.ai_facts, f.origin, i.name AS item, s.name AS step, s.stt FROM pl_file f JOIN pl_item i ON i.id = f.item_id JOIN pl_step s ON s.id = f.step_id
+    WHERE f.step_id = ANY($1) AND f.current AND (f.origin IS DISTINCT FROM 'du_thao' OR f.step_id <> $2) ORDER BY (f.step_id = $2) DESC, s.ord DESC, f.uploaded_at`, [ids, step.id]);
+  const refs = await q(`SELECT i.name, i.ref_text, s.name AS step FROM pl_item i JOIN pl_step s ON s.id = i.step_id WHERE i.step_id = ANY($1) AND coalesce(trim(i.ref_text), '') <> ''`, [ids]);
+  const basis = step.procedure_id ? await q(`SELECT d.number_text, d.code, d.title, d.issued_on, d.effective_from, d.effective_to, d.src_status, b.article_text FROM pl_procedure_basis b JOIN pl_legal_doc d ON d.src_id = b.legal_src_id WHERE b.procedure_id = $1`, [step.procedure_id]) : [];
+  const f_ = x => x.ai_facts || {};
+  return {
+    files: files.map(x => ({ id: x.id, name: x.name, item: x.item, step: x.step, same: x.step_id === step.id, loai: f_(x).loai_van_ban || '', so: f_(x).so_hieu || '', ngay: f_(x).ngay_ban_hanh || '', co_quan: f_(x).co_quan_ban_hanh || '', trich_yeu: f_(x).trich_yeu || '', tom_tat: f_(x).tom_tat || '' })),
+    refs, basis: basis.map(b => ({ so: b.number_text || b.code, title: b.title, ngay: b.issued_on, dieu: b.article_text, hieu_luc: effText(b) })),
+  };
+}
+// AI soạn lại dự thảo đang có: lấy hồ sơ mới nhất + tra cứu quy định mới nhất; giữ loại, trích yếu, mục checklist
+route('POST', '/api/docs/:id/redraft', async ({ user, params, body }) => {
+  const d = await docOf(user, params.id, ...W);
+  if (d.status === 'chot') bad('Văn bản đã chốt — bấm «Mở lại» trước');
+  if (!AI.enabled()) bad('AI đang tắt (chưa có ANTHROPIC_API_KEY trong .env)');
+  const s = await one(`SELECT * FROM pl_step WHERE id = $1`, [d.step_id]), item = d.item_id ? await one(`SELECT * FROM pl_item WHERE id = $1`, [d.item_id]) : null;
+  const request = [txt(d.request), txt(body.request)].filter(Boolean).join('\n') || null;
+  const { d: x } = await buildDoc(s, item, { kind: d.kind, subject: d.subject, request, use_ai: true });
+  await q(`UPDATE pl_doc SET auto=false, by_ai=true, request=$2, unit=$3, number_text=$4, place=$5, date_text=$6, subject=$7, authority=$8, bases=$9, recipients=$10, body=$11, receivers=$12, signers=$13, cites=$14, to_check=$15, version=version+1, updated_at=now() WHERE id=$1`,
+    [d.id, request, x.unit, x.number_text, x.place, x.date_text, x.subject, x.authority, J(x.bases), J(x.recipients), x.body, J(x.receivers), JSON.stringify(x.signers), JSON.stringify(x.cites), JSON.stringify(x.to_check)]);
+  await log(user, d.project_id, 'doc', d.id, 'ai_redraft', x.subject);
+  return docOf(user, d.id);
 });
 // dữ liệu điền mẫu: số liệu bồi thường và số hiệu văn bản kết quả đã có của dự án
 async function mauCtx(s, info, item) {
@@ -1116,7 +1148,7 @@ route('POST', '/api/docs/:id/pdf', async ({ user, params, body, res }) => {
 route('POST', '/api/docs/:id/chot', async ({ user, params }) => {
   const d = await docOf(user, params.id, ...W);
   if (d.status === 'chot') bad('Văn bản đã chốt');
-  if (/\[(?:…|\.\.\.|cần bổ sung)[^\]]*\]/i.test(docPlain(d))) bad('Văn bản còn chỗ trống dạng […] / [cần bổ sung …] — điền đủ trước khi chốt');
+  if (/\[[^\]\n]{1,200}\]/.test(docPlain(d))) bad('Văn bản còn chỗ trống dạng […] / [cần bổ sung …] — điền đủ trước khi chốt');
   const pdf = await PDF.htmlToPdf(VB.page([VB.render(d)], d.subject));
   const name = safeName(`${VB.LOAI[d.kind].name} - ${d.subject}`).slice(0, 100) + '.pdf';
   await tx(async t => {
@@ -1777,6 +1809,7 @@ server.headersTimeout = 60e3;
   if (AI.enabled()) for (const f of await q(`SELECT id FROM pl_file WHERE ai_status IN ('cho','dang') AND current`)) enqueue(() => extractFile(f.id));
   else await q(`UPDATE pl_file SET ai_status = 'tat' WHERE ai_status IN ('cho','dang')`);
   await q(`ALTER TABLE pl_doc ADD COLUMN IF NOT EXISTS auto boolean NOT NULL DEFAULT false`);
+  await q(`ALTER TABLE pl_check DROP CONSTRAINT IF EXISTS pl_check_kind_check; ALTER TABLE pl_check ADD CONSTRAINT pl_check_kind_check CHECK (kind IN ('ho_so','ket_qua','du_thao','tep'))`);
   await q(`ALTER TABLE pl_item ADD COLUMN IF NOT EXISTS issue_kind text, ADD COLUMN IF NOT EXISTS issue_text text, ADD COLUMN IF NOT EXISTS issue_by uuid REFERENCES app_user(id), ADD COLUMN IF NOT EXISTS issue_at timestamptz`);
   await q(fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8').match(/CREATE TABLE IF NOT EXISTS pl_event[\s\S]*?\);\s*CREATE INDEX[^;]*;/)[0]);
   // mục «phải soạn» có mẫu riêng mà chưa ghi loại văn bản → ghi theo mẫu

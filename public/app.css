@@ -1165,3 +1165,21 @@ details[open]>summary>.ckcar{transform:rotate(90deg)}
 .exbox.isbox{border-color:var(--orange);background:color-mix(in srgb,var(--orange) 7%,transparent)}
 .isbox .exh{display:flex;align-items:center;gap:8px}.isbox .exh svg{width:16px;height:16px;flex:none;fill:none;stroke:var(--orange);stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .isv{margin:6px 0 0;line-height:1.55}
+
+/* Dự thảo văn bản: bản A4 bên trái, «Căn cứ soạn thảo» bên phải (dính khi cuộn) */
+.ed2.solo.dewrap{grid-template-columns:minmax(0,1fr) 340px}
+.ed2.solo.dewrap>.card:not([hidden]):not(.desrc){min-width:0}
+.desrc{position:sticky;top:12px;max-height:calc(100vh - 24px);overflow-y:auto;padding:14px}
+.desrc h3{margin:0 0 4px;font-size:15px}
+.srcg{border-top:1px solid var(--line);padding:8px 0}
+.srcg>summary{cursor:pointer;font-weight:600;font-size:13.5px;list-style:none;display:flex;align-items:center;gap:6px}
+.srcg>summary::before{content:"▸";color:var(--muted)}.srcg[open]>summary::before{content:"▾"}
+.srcg>summary small{color:var(--muted);font-weight:400}
+.srcl{list-style:none;margin:6px 0 0;padding:0;display:flex;flex-direction:column;gap:8px}
+.srcl li{display:flex;gap:8px;align-items:flex-start;justify-content:space-between}
+.srcl li>div{min-width:0;display:flex;flex-direction:column;gap:2px}
+.srcl b{font-size:13px;font-weight:600;word-break:break-word}.srcl a{color:inherit}
+.srcl small{font-size:12px;color:var(--muted)}.srcl .srcf{color:var(--fg)}
+.srcl .btn{flex:none}
+@media (max-width:1300px){.ed2.solo.dewrap{grid-template-columns:minmax(0,1fr)}.desrc{position:static;max-height:none}}
+.fchkp{border:0;background:none;padding:0;cursor:pointer}

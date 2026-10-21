@@ -17,7 +17,7 @@
 
   // sửa trực tiếp trên bản xem trước (chỉ trình duyệt dùng): mỗi phần bọc trong vùng contenteditable gắn tên trường; «[cần bổ sung: …]» tô nổi
   let ED = false;
-  const mk = h => h.replace(/\[cần bổ sung:[^\]]*\]/g, m => `<mark>${m}</mark>`);
+  const mk = h => h.replace(/\[[^\]\n]{1,200}\]/g, m => `<mark>${m}</mark>`);   // mọi chỗ […] (mẫu, AI) đều là chỗ cần bổ sung
   const E = (f, html, block) => ED ? `<${block ? 'div' : 'span'} class="ed" contenteditable="true" spellcheck="false" data-f="${f}">${mk(html)}</${block ? 'div' : 'span'}>` : html;
   function bodyHtml(body) {
     return E('body', lines(body).map(l => {
