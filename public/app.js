@@ -470,7 +470,7 @@ VIEW["screen-09-02"]={
   after(d){
     if(!d)return;
     const pid=d.pid,re=()=>{reload();dirty("01","03")};
-    calAfter(id=>editStep(d.steps.find(s=>s.id===id),d),d);
+    calAfter(id=>viewStep(d.steps.find(s=>s.id===id),d),d);
     [$("#plInit"),$("#plInit2")].forEach(b=>b&&(b.onclick=()=>initSteps(pid,d.steps.length>0)));
     $("#plUpd")&&($("#plUpd").onclick=e=>busy(e.target,"Đang tính…",async()=>{const r=await api("POST",`/api/plan/${pid}/schedule`,{mode:"cap_nhat"});re();toast("Đã cập nhật kế hoạch theo thực tế — dự kiến xong "+dmy(r.finish))}).catch(x=>toast(x.message)));
     $("#plRe")&&($("#plRe").onclick=()=>formModal({title:"Lập lại kế hoạch pháp lý",intro:"Tính lại toàn bộ ngày dự kiến từ ngày bắt đầu và ghi đè kế hoạch gốc. Bước đã xong giữ ngày thực tế.",values:{start:ST.ref.today},
@@ -498,6 +498,18 @@ function planRow(s){
   return `<li class="plr ${c}" data-ed="${s.id}" tabindex="0" role="button"><span class="pli ${c}" aria-hidden="true">${ic}</span>
     <div class="plb"><b>${s.stt?esc(s.stt)+". ":""}${esc(s.name)}</b><small>${esc(spanTxt(s))}${s.req_n?` · hồ sơ ${s.req_ok}/${s.req_n}`:""}${s.owner?" · "+esc(s.owner):""}${s.note&&s.open?" · "+esc(s.note):""}</small></div>
     <span class="plst">${extPill(s.ext,s.ext_wait)}${late?`<span class="pill p-r">⚠ Quá hạn ${s.late} ngày</span>`:s.open&&+s.overdue_n>0?`<span class="pill p-r">⚠ ${s.overdue_n} hồ sơ quá hạn</span>`:s.open&&s.late_kind==="cham_ke_hoach"&&s.late>0?`<span class="pill p-a">Chậm ${s.late} ngày so với gốc</span>`:pill(P(STEP_ST[s.status]))}</span></li>`;
+}
+// bấm việc trên lịch: chỉ XEM việc (hạn, tình trạng, hồ sơ còn thiếu, vướng mắc) — sửa việc làm ở danh sách bên dưới
+function viewStep(s,d){
+  if(!s)return;
+  const t=ST.ref.today,L=(d.items||[]).filter(i=>i.step_id===s.id&&i.required),miss=L.filter(i=>!i.ok),late=s.status!=="xong"&&s.plan_end&&s.plan_end<t?daysLate(s.plan_end):0;
+  const row=(k,v)=>v?`<div><small>${k}</small><b>${v}</b></div>`:"";
+  panelModal({title:`${s.stt?s.stt+". ":""}${s.name}`,wide:620,html:`<p style="margin:0 0 12px;display:flex;gap:6px;flex-wrap:wrap">${pill(P(STEP_ST[s.status]))}${late?pill(`~r:⚠ Quá hạn ${late} ngày — nhắc lại mỗi ngày tới khi xong`):""}</p>
+    <div class="exinfo">${row("Kế hoạch",s.plan_start||s.plan_end?`${dmy(s.plan_start)} → ${dmy(s.plan_end)}`:"chưa có ngày")}${row("Hạn hoàn thành",dmy(s.plan_end))}${row("Người phụ trách",esc(s.owner||"chưa giao"))}${row("Cơ quan",esc(s.agency_text||""))}${row("Thực tế",s.act_end?"xong "+dmy(s.act_end):s.act_submit?"đã nộp "+dmy(s.act_submit):s.act_start?"bắt đầu "+dmy(s.act_start):"")}</div>
+    ${s.issue_kind?`<div class="exbox isbox" style="margin-top:12px"><div class="exh"><b>Vướng mắc</b></div><p class="isv">${esc(ST.ref.issue_kinds[s.issue_kind]||"")}${s.issue_text?" — "+esc(s.issue_text):""}</p></div>`:""}
+    <h4 style="margin:14px 0 6px">Hồ sơ ${L.length?`<small class="muted" style="font-weight:400">${L.length-miss.length}/${L.length} đã có</small>`:""}</h4>
+    ${L.length?`<ul class="vslist">${[...miss,...L.filter(i=>i.ok)].map(i=>`<li class="${i.ok?"ok":i.state}"><span>${i.ok?"✓":i.state==="qua_han"?"!":"○"}</span><div><b>${esc(i.name)}</b><small>${i.ok?"Đã có":i.due?(i.state==="qua_han"?`Quá hạn ${i.late} ngày (hạn ${dmy(i.due)})`:"Hạn "+dmy(i.due)):"Chưa có"}${i.issue_text?" · Vướng: "+esc(i.issue_text):""}</small></div></li>`).join("")}</ul>`:`<p class="muted">Việc này không có hồ sơ bắt buộc.</p>`}
+    <div class="foot" style="margin-top:14px"><a class="btn" href="#" data-go="screen-09-03" data-sel="${s.id}" data-x>${ico("check")}Xem hồ sơ của việc</a><span style="flex:1"></span><button class="btn pri" type="button" data-x>Đóng</button></div>`});
 }
 function planView(d){
   const t=ST.ref.today,all=d.steps.filter(s=>ST.q.plAll||s.status!=="bo_qua"),act_=all.filter(s=>s.status!=="bo_qua");
@@ -591,6 +603,9 @@ function calView(d){
     const t=ST.ref.today,E=calEvents(d.steps,d.items,t),ym=ST.tab.calM||t.slice(0,7),[y,m]=ym.split("-").map(Number);
     const first=new Date(y,m-1,1),nDays=new Date(y,m,0).getDate(),lead=(first.getDay()+6)%7,iso=n=>`${ym}-${String(n).padStart(2,"0")}`;
     const by={},U=evItems(d.ev,iso(1),iso(nDays));U.concat(E).forEach(e=>(by[e.d]=by[e.d]||[]).push(e));
+    // việc quá hạn chưa xong: nhắc tiếp ở ô hôm nay (mỗi ngày tới khi xong), ghi «từ dd/mm»
+    const carry=E.filter(e=>e.k==="r"&&e.d<t).map(e=>({...e,carry:1,sub:`Quá hạn từ ${dm(e.d)}${e.sub?" · "+e.sub:""}`}));
+    if(carry.length)by[t]=[...carry,...(by[t]||[])];
     const pick=ST.tab.calD&&ST.tab.calD.startsWith(ym)?ST.tab.calD:null;
     const chip=e=>e.ev?`<span class="cale" style="--k:${e.col}" data-ev="${e.ev.id}">${e.tm?`<em>${e.tm}</em> `:""}${esc(e.t)}</span>`:`<span class="cale k-${e.k}" data-calstep="${e.step}">${esc(e.t.replace(/^(Hạn xong|Xong|Hạn nộp|Hạn bổ sung): /,""))}</span>`;   // ô ngày: 2 mục đầu (bỏ tiền tố «Hạn xong:» cho gọn), chi tiết ở cột dưới
     const cells=[...Array(lead)].map(()=>`<div class="calc pad" aria-hidden="true"></div>`).concat([...Array(nDays)].map((_,k)=>{const dd=iso(k+1),L=by[dd]||[];
@@ -726,7 +741,7 @@ async function buildFullHtml(){
   const pid=ovProj()?.id||curProj(),Q=qs({project:pid}),snap={};
   const get=async u=>{snap[u]=await api("GET",u);return snap[u]};
   const steps=await get("/api/steps"+Q);
-  await Promise.all(["/api/me","/api/ref","/api/overview"+Q,"/api/today"+Q,"/api/checklist"+Q,`/api/projects/${pid}/info`,"/api/docs"+Q,"/api/households"+Q,"/api/tpl","/api/events"+Q,"/api/events","/api/extensions"+Q].map(get));
+  await Promise.all(["/api/me","/api/ref","/api/overview"+Q,"/api/today"+Q,"/api/checklist"+Q,`/api/projects/${pid}/info`,"/api/docs"+Q,"/api/households"+Q,"/api/docs-pending"+Q,"/api/tpl","/api/events"+Q,"/api/events","/api/extensions"+Q].map(get));
   for(let i=0;i<steps.length;i+=12)await Promise.all(steps.slice(i,i+12).map(s=>get("/api/steps/"+s.id)));
   for(const d of snap["/api/docs"+Q])await get("/api/docs/"+d.id);
   snap["/api/ai-chats"]=[];   // bản xem không có hội thoại AI — tránh báo «không có dữ liệu» ở màn Trợ lý AI

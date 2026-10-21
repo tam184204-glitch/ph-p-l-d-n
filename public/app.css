@@ -1183,3 +1183,11 @@ details[open]>summary>.ckcar{transform:rotate(90deg)}
 .srcl .btn{flex:none}
 @media (max-width:1300px){.ed2.solo.dewrap{grid-template-columns:minmax(0,1fr)}.desrc{position:static;max-height:none}}
 .fchkp{border:0;background:none;padding:0;cursor:pointer}
+/* xem việc trên lịch: danh sách hồ sơ gọn */
+.vslist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.vslist li{display:flex;gap:10px;align-items:flex-start}
+.vslist li>span{width:20px;height:20px;flex:none;border-radius:50%;display:grid;place-items:center;font-size:12px;font-weight:700;background:var(--line)}
+.vslist li.ok>span{background:color-mix(in srgb,var(--green) 25%,transparent);color:var(--green)}
+.vslist li.qua_han>span{background:color-mix(in srgb,var(--red) 25%,transparent);color:var(--red)}
+.vslist b{font-size:13.5px;font-weight:500;display:block}.vslist small{font-size:12px;color:var(--muted)}
+.vslist li.qua_han small{color:var(--red)}
