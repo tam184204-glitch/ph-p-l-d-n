@@ -400,7 +400,7 @@ VIEW["screen-09-00"]={
     ST.ovPB=PB;ST.ovPid=p.id;
     // 4 thẻ số liệu đã có ở Kế hoạch pháp lý — Tổng quan bỏ (user 22/10)
     return `${p.no_base?`<div style="margin-bottom:14px">${banner("a",`${p.no_base}/${p.total} bước chưa có kế hoạch gốc nên chưa so được chậm / sớm. Vào Kế hoạch pháp lý › «Chốt kế hoạch gốc» khi đã thống nhất tiến độ.`)}</div>`:""}
-    ${projCard(p,d.today)}${insightView(d)}
+    ${insightView(d)}<div style="margin-top:14px">${projCard(p,d.today)}</div>
     <div class="grid g2e" style="margin-top:14px"><div class="card"><h3>Các bước chậm so với kế hoạch gốc</h3>${lateChart(p.late_steps.slice(0,10))}${note("Độ dài thanh = số ngày chậm (dự kiến hoàn thành trừ kế hoạch gốc, hoặc số ngày cơ quan quá hạn trả kết quả). Bấm vào thanh để mở bước.")}</div>
       <div class="card"><h3>Nguyên nhân vướng mắc</h3>${causeChart(d.causes,ovc)}${note("Nguyên nhân do người phụ trách ghi khi bấm vào hồ sơ / công việc quá hạn. «Chưa ghi nguyên nhân» = đã quá hạn mà chưa ai giải trình. Bấm vào thanh để xem từng hồ sơ, bấm hồ sơ để xem hoặc ghi lý do.")}</div></div>
     ${PB.length?`<div class="card" id="ovProb" style="margin-top:14px"><div class="plh"><h3 style="margin:0">${ovc?esc(ovc):"Tình trạng và nguyên nhân vướng mắc"} <small class="muted" style="font-weight:400">${PB.length} mục</small></h3><span style="flex:1"></span>${ovc?`<button class="btn sm" type="button" data-cause="">${ico("x")}Bỏ lọc</button>`:""}</div>
@@ -444,7 +444,7 @@ function insightView(d){
   const rk=`<div class="card"><h3>Rủi ro pháp lý sắp tới <small class="muted" style="font-weight:400">14 ngày tới · quy định mới 90 ngày tới</small></h3>
     ${I.risk.length?`<ul class="agl">${I.risk.map(x=>`<li ${x.step?`data-step="${x.step}" tabindex="0" role="button"`:""}><span class="pill p-${x.lv==="cao"?"r":"a"}" style="flex:none">${esc(RK[x.k]||"Rủi ro")}</span><div><small style="color:var(--fg);font-size:13px">${esc(x.text.replace(/^Nguy cơ trễ hạn /,""))}</small></div></li>`).join("")}</ul>`
       :`<p class="muted">✓ Chưa thấy rủi ro pháp lý nào trong 14 ngày tới.</p>`}</div>`;
-  return `<div class="grid g2e" style="margin-top:14px">${week}${ag}</div><div class="grid g2e" style="margin-top:14px">${bl}${rk}</div>`;
+  return `<div class="grid g2e">${week}${ag}</div><div class="grid g2e" style="margin-top:14px">${bl}${rk}</div>`;
 }
 function projCard(p,t){
   const s=PST[p.status];
