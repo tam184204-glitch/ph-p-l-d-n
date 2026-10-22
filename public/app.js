@@ -594,7 +594,7 @@ function evItems(list,from,to){
   const out=[];
   (list||[]).forEach(x=>evOcc(x,from,to).forEach(o=>{for(let d=o.d<from?from:o.d;d<=o.e&&d<=to;d=isoAdd(d,1))
     out.push({d,occ:o.d,ev:x,t:x.title,tm:!x.all_day&&d===o.d?x.start_time:"",col:(EVK[x.kind]||EVK.khac)[1],
-      sub:[x.all_day?"Cả ngày":d===o.d?evTime(x):"tiếp tục",x.location,x.repeat?EVREP[x.repeat]:"",x.remind?.length?"🔔":"",x.shared?"":"chỉ mình tôi"].filter(Boolean).join(" · ")})}));
+      sub:[x.all_day?"Cả ngày":d===o.d?evTime(x):"tiếp tục",x.location,x.repeat?EVREP[x.repeat]:"",x.remind?.length?"🔔":"",x.invited?"mời bạn · "+(x.creator||""):x.people?.length?x.people.length+" người được mời":"",x.shared?"":"chỉ mình tôi"].filter(Boolean).join(" · ")})}));
   return out.sort((a,b)=>a.d.localeCompare(b.d)||(a.tm||"").localeCompare(b.tm||""));
 }
 
@@ -605,7 +605,8 @@ function calView(d){
     const by={},U=evItems(d.ev,iso(1),iso(nDays));U.concat(E).forEach(e=>(by[e.d]=by[e.d]||[]).push(e));
     // việc quá hạn chưa xong: nhắc tiếp ở ô hôm nay (mỗi ngày tới khi xong), ghi «từ dd/mm»
     const carry=E.filter(e=>e.k==="r"&&e.d<t).map(e=>({...e,carry:1,sub:`Quá hạn từ ${dm(e.d)}${e.sub?" · "+e.sub:""}`}));
-    if(carry.length)by[t]=[...carry,...(by[t]||[])];
+    // ô hôm nay: lịch họp / sự kiện lên đầu, rồi việc quá hạn nhắc lại, rồi hạn của hôm nay
+    if(carry.length){const L=by[t]||[];by[t]=[...L.filter(e=>e.ev),...carry,...L.filter(e=>!e.ev)]}
     const pick=ST.tab.calD&&ST.tab.calD.startsWith(ym)?ST.tab.calD:null;
     const chip=e=>e.ev?`<span class="cale" style="--k:${e.col}" data-ev="${e.ev.id}">${e.tm?`<em>${e.tm}</em> `:""}${esc(e.t)}</span>`:`<span class="cale k-${e.k}" data-calstep="${e.step}">${esc(e.t.replace(/^(Hạn xong|Xong|Hạn nộp|Hạn bổ sung): /,""))}</span>`;   // ô ngày: 2 mục đầu (bỏ tiền tố «Hạn xong:» cho gọn), chi tiết ở cột dưới
     const cells=[...Array(lead)].map(()=>`<div class="calc pad" aria-hidden="true"></div>`).concat([...Array(nDays)].map((_,k)=>{const dd=iso(k+1),L=by[dd]||[];
@@ -654,7 +655,8 @@ function editEvent(x,d,day){
       <div class="evrow"><span class="evl">Lặp lại</span><select id="ev-rep" ${dis}>${Object.entries(EVREP).map(([k,l])=>`<option value="${k}" ${v.repeat===k?"selected":""}>${l}</option>`).join("")}</select><span id="ev-ruw" class="evru">đến ${dateInput("ev-ru",v.rep_until,{dis:!own})}</span></div>
       <div class="evrow"><span class="evl">Nhắc</span>${remSel("ev-r1",v.remind?.[0])}${remSel("ev-r2",v.remind?.[1])}</div>
       <div class="fld"><label for="ev-loc">Địa điểm</label><input id="ev-loc" value="${esc(v.location||"")}" placeholder="vd: Phòng họp tầng 3 / Sở Xây dựng" ${dis}></div>
-      <div class="fld"><label for="ev-att">Người tham dự</label><input id="ev-att" value="${esc(v.attendees||"")}" placeholder="vd: Anh Cường, chị Huyền, Ban QLDA" ${dis}></div>
+      <div class="fld"><label for="ev-att">Người tham dự</label><div class="attbox" id="ev-attbox"><input id="ev-att" autocomplete="off" placeholder="${own?"Gõ tên để mời, vd: Cường, Huyền… (Enter để thêm tên ngoài hệ thống)":""}" ${dis} role="combobox" aria-expanded="false" aria-controls="ev-attsug"></div>
+        <div class="attsug" id="ev-attsug" role="listbox" hidden></div><small class="muted" style="font-size:12px">Người trong hệ thống được mời sẽ thấy sự kiện trên lịch của mình, nhận thẻ mời trên màn hình và được nhắc giờ.</small></div>
       <div class="fld"><label for="ev-note">Ghi chú</label><textarea id="ev-note" ${dis}>${esc(v.note||"")}</textarea></div>
       <label class="muted" style="font-size:13px"><input type="checkbox" id="ev-sh" ${v.shared?"checked":""} ${dis}> Hiện cho mọi người trong dự án (bỏ chọn = chỉ mình tôi thấy)</label></div>
       <div class="foot" style="margin-top:14px">${x&&own?`<button class="btn dan" type="button" id="evDel">Xóa sự kiện</button>`:""}<span style="flex:1"></span><button class="btn" type="button" data-x>${own?"Hủy":"Đóng"}</button>${own?`<button class="btn pri" type="button" id="evOk">Lưu</button>`:""}</div>`,
@@ -665,15 +667,34 @@ function editEvent(x,d,day){
       let prev=stI.value;stI.onchange=()=>{if(prev&&etI.value&&stI.value){const [a,b]=[prev,etI.value].map(s=>s.split(":").reduce((h,m)=>h*60+ +m));etI.value=tmAdd(stI.value,Math.max(b-a,15))}prev=stI.value};
       $("#ev-sd",ov).addEventListener("change",()=>{const s=dval($("#ev-sd",ov)),e=$("#ev-ed",ov);if(s&&(!dval(e)||dval(e)<s))e.value=isoDmy(s)});
       $("#ev-title",ov).focus();
+      // người tham dự: thẻ tên — người trong hệ thống (có id, được mời) hoặc tên tự gõ (chỉ ghi chú)
+      const nm=s=>String(s||"").normalize("NFD").replace(/[̀-ͯ]/g,"").replace(/đ/gi,"d").toLowerCase();
+      const ppl=(v.people||[]).map(p=>({id:p.id,name:p.name,title:p.title})),pn=new Set(ppl.map(p=>p.name));
+      String(v.attendees||"").split(/[,;\n]/).map(s=>s.trim()).filter(s=>s&&!pn.has(s)).forEach(name=>ppl.push({name}));
+      const box=$("#ev-attbox",ov),inp=$("#ev-att",ov),sug=$("#ev-attsug",ov);let hi=0,opts=[];
+      const drawChips=()=>{box.querySelectorAll(".attc").forEach(c=>c.remove());ppl.forEach((p,k)=>inp.insertAdjacentHTML("beforebegin",`<span class="attc ${p.id?"u":""}" title="${esc(p.id?(p.title||"")+" — sẽ nhận lời mời":"Tên ngoài hệ thống (chỉ ghi chú)")}">${esc(p.name)}${own?`<button type="button" data-rm="${k}" aria-label="Bỏ ${esc(p.name)}">×</button>`:""}</span>`));
+        box.querySelectorAll("[data-rm]").forEach(b=>b.onclick=()=>{ppl.splice(+b.dataset.rm,1);drawChips();inp.focus()})};
+      const pick=p=>{if(p.id?!ppl.some(x=>x.id===p.id):!ppl.some(x=>x.name===p.name))ppl.push(p);inp.value="";sug.hidden=true;inp.setAttribute("aria-expanded","false");drawChips();inp.focus()};
+      const drawSug=()=>{const k=nm(inp.value.trim());if(!k){sug.hidden=true;return}
+        opts=ST.ref.users.filter(u=>!ppl.some(p=>p.id===u.id)&&(nm(u.full_name).includes(k)||nm(u.username).includes(k))).slice(0,8);hi=Math.min(hi,Math.max(0,opts.length-1));
+        sug.innerHTML=opts.length?opts.map((u,i)=>`<div role="option" class="${i===hi?"on":""}" data-u="${i}" aria-selected="${i===hi}"><b>${esc(u.full_name)}</b><small>${esc(u.job_title||u.username)}</small></div>`).join(""):`<div class="muted" style="padding:8px 10px;font-size:12.5px">Không có người dùng «${esc(inp.value.trim())}» — Enter để ghi tên này (không gửi lời mời)</div>`;
+        sug.hidden=false;inp.setAttribute("aria-expanded","true");sug.querySelectorAll("[data-u]").forEach(el=>el.onmousedown=e=>{e.preventDefault();const u=opts[+el.dataset.u];pick({id:u.id,name:u.full_name,title:u.job_title})})};
+      drawChips();
+      if(own){inp.oninput=()=>{hi=0;drawSug()};inp.onblur=()=>setTimeout(()=>sug.hidden=true,120);
+        inp.onkeydown=e=>{if(e.key==="ArrowDown"||e.key==="ArrowUp"){if(sug.hidden||!opts.length)return;e.preventDefault();hi=(hi+(e.key==="ArrowDown"?1:opts.length-1))%opts.length;drawSug()}
+          else if(e.key==="Enter"){e.preventDefault();const t=inp.value.trim();if(!t)return;const u=!sug.hidden&&opts[hi];u?pick({id:u.id,name:u.full_name,title:u.job_title}):pick({name:t})}
+          else if(e.key==="Backspace"&&!inp.value&&ppl.length){ppl.pop();drawChips()}
+          else if(e.key==="Escape"&&!sug.hidden){e.stopPropagation();sug.hidden=true}};
+        box.onclick=e=>{if(e.target===box)inp.focus()}}
       const val=()=>({project_id:x?x.project_id:d.pid,title:$("#ev-title",ov).value,kind:$("[name=ev-kind]:checked",ov)?.value||"hop",all_day:ad.checked,
         start_date:dval($("#ev-sd",ov)),end_date:dval($("#ev-ed",ov)),start_time:ad.checked?null:stI.value,end_time:ad.checked?null:etI.value,
         repeat:rep.value,rep_until:rep.value?dval($("#ev-ru",ov)):null,remind:[$("#ev-r1",ov).value,$("#ev-r2",ov).value].filter(s=>s!==""),
-        location:$("#ev-loc",ov).value,attendees:$("#ev-att",ov).value,note:$("#ev-note",ov).value,shared:$("#ev-sh",ov).checked});
+        location:$("#ev-loc",ov).value,attendees:[...ppl.map(p=>p.name),inp.value.trim()].filter(Boolean).join(", "),attendee_ids:ppl.filter(p=>p.id).map(p=>p.id),note:$("#ev-note",ov).value,shared:$("#ev-sh",ov).checked});
       const done=async m=>{close();await remLoad();reload();toast(m)};
       $("#evOk",ov)&&($("#evOk",ov).onclick=e=>busy(e.target,"Đang lưu…",async()=>{try{const b=val();
         if(x)await api("PUT","/api/events/"+x.id,b);else await api("POST","/api/events",b);
         if(b.remind.length&&"Notification" in window&&Notification.permission==="default")Notification.requestPermission().catch(()=>{});
-        await done(x?"Đã lưu sự kiện":`Đã thêm «${b.title.trim()}» vào lịch ${dmy(b.start_date)}`)}catch(m){err(m.message)}}));
+        await done((x?"Đã lưu sự kiện":`Đã thêm «${b.title.trim()}» vào lịch ${dmy(b.start_date)}`)+(b.attendee_ids.filter(i=>i!==ST.me.id).length?` — đã mời ${b.attendee_ids.filter(i=>i!==ST.me.id).length} người`:""))}catch(m){err(m.message)}}));
       $("#evDel",ov)&&($("#evDel",ov).onclick=()=>{close();confirmBox("Xóa sự kiện?",`Xóa «${x.title}»${x.repeat?" và mọi lần lặp lại":""}. Không hoàn tác được.`,"Xóa",true,async()=>{await api("DELETE","/api/events/"+x.id);await remLoad();reload();toast("Đã xóa sự kiện")})});
     }});
 }
@@ -681,7 +702,12 @@ function editEvent(x,d,day){
 /* nhắc giờ: kiểm tra 20 giây một lần ở mọi màn hình — thông báo của trình duyệt (nếu cho phép) + thẻ nhắc góc màn hình + tiếng chuông */
 const REM={list:[],on:false,fired:new Set()};
 try{JSON.parse(localStorage.getItem("pl-rem")||"[]").forEach(k=>REM.fired.add(k))}catch(e){}
-async function remLoad(){try{REM.list=await api("GET","/api/events")}catch(e){}}
+async function remLoad(){try{REM.list=await api("GET","/api/events")}catch(e){}invLoad()}
+// thẻ mời: ai được mời (hoặc sự kiện đổi giờ) thấy thẻ trên màn hình tới khi bấm «Đã biết» / «Xem lịch»
+const INV=new Set();
+async function invLoad(){let L;try{L=await api("GET","/api/invites")}catch(e){return}
+  L.filter(x=>!INV.has(x.id)).forEach(x=>{INV.add(x.id);
+    remShow(x,x.start_date,{head:x.changed?"Sự kiện được mời đã thay đổi":"Bạn được mời tham dự",by:x.creator,onDone:()=>api("POST",`/api/invites/${x.id}/seen`).catch(()=>{})})})}
 function remStart(){if(REM.on)return;REM.on=true;remLoad().then(remTick);setInterval(remTick,20e3);setInterval(remLoad,5*60e3)}
 function remTick(){
   const now=Date.now(),t=today(),L=[];
@@ -693,15 +719,16 @@ function remTick(){
   L.forEach(([x,d])=>remShow(x,d));
 }
 function beep(){try{const a=new (window.AudioContext||window.webkitAudioContext)();[0,.25].forEach(s=>{const o=a.createOscillator(),g=a.createGain();o.frequency.value=880;g.gain.setValueAtTime(.18,a.currentTime+s);g.gain.exponentialRampToValueAtTime(.001,a.currentTime+s+.22);o.connect(g).connect(a.destination);o.start(a.currentTime+s);o.stop(a.currentTime+s+.22)})}catch(e){}}
-function remShow(x,d){
+// o (thẻ mời): head = dòng tiêu đề, by = người mời, onDone = khi bấm Xem lịch / Đã biết
+function remShow(x,d,o={}){
   const when=`${d===today()?"Hôm nay":WD[new Date(d+"T00:00:00").getDay()]+" "+dmy(d)} · ${evTime(x)}`,open=()=>{
     if(ST.proj&&ST.proj!==x.project_id&&projOf(x.project_id)){setProj(x.project_id);$("#proj").value=x.project_id;ST.data={}}
     ST.tab.calM=d.slice(0,7);ST.tab.calD=d;delete ST.data["screen-09-02"];go("screen-09-02")};
-  if("Notification" in window&&Notification.permission==="granted")try{const n=new Notification("🔔 "+x.title,{body:[when,x.location].filter(Boolean).join(" · "),tag:x.id+d});n.onclick=()=>{focus();open();n.close()}}catch(e){}
+  if("Notification" in window&&Notification.permission==="granted")try{const n=new Notification((o.head?"📅 "+o.head+": ":"🔔 ")+x.title,{body:[when,x.location,o.by&&"Người mời: "+o.by].filter(Boolean).join(" · "),tag:x.id+d+(o.head||"")});n.onclick=()=>{focus();open();n.close()}}catch(e){}
   let box=$(".rembox");if(!box){box=document.createElement("div");box.className="rembox";box.setAttribute("role","alert");document.body.append(box)}
   const el=document.createElement("div");el.className="remc";el.style.setProperty("--k",(EVK[x.kind]||EVK.khac)[1]);
-  el.innerHTML=`<span class="remi" aria-hidden="true">🔔</span><div><b>${esc(x.title)}</b><small>${esc(when)}${x.location?" · "+esc(x.location):""}</small><div class="rema"><button class="btn sm" type="button" data-o>Xem lịch</button><button class="btn sm" type="button" data-c>Đã biết</button></div></div>`;
-  $("[data-o]",el).onclick=()=>{el.remove();open()};$("[data-c]",el).onclick=()=>el.remove();box.append(el);beep();
+  el.innerHTML=`<span class="remi" aria-hidden="true">${o.head?"📅":"🔔"}</span><div>${o.head?`<small class="remh">${esc(o.head)}${o.by?" · "+esc(o.by)+" mời":""}</small>`:""}<b>${esc(x.title)}</b><small>${esc(when)}${x.location?" · "+esc(x.location):""}</small><div class="rema"><button class="btn sm" type="button" data-o>Xem lịch</button><button class="btn sm" type="button" data-c>Đã biết</button></div></div>`;
+  $("[data-o]",el).onclick=()=>{el.remove();o.onDone?.();open()};$("[data-c]",el).onclick=()=>{el.remove();o.onDone?.()};box.append(el);beep();
 }
 
 /* xuất báo cáo HTML độc lập: Tổng quan + Kế hoạch + Checklist hồ sơ, số liệu tại thời điểm xuất (chỉ xem) */

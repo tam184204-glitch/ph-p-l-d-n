@@ -1191,3 +1191,17 @@ details[open]>summary>.ckcar{transform:rotate(90deg)}
 .vslist li.qua_han>span{background:color-mix(in srgb,var(--red) 25%,transparent);color:var(--red)}
 .vslist b{font-size:13.5px;font-weight:500;display:block}.vslist small{font-size:12px;color:var(--muted)}
 .vslist li.qua_han small{color:var(--red)}
+/* người tham dự: thẻ tên + gợi ý người dùng */
+.attbox{display:flex;flex-wrap:wrap;gap:6px;align-items:center;padding:6px 8px;border:1px solid var(--line);border-radius:10px;background:var(--surface);min-height:42px;cursor:text}
+.attbox:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px color-mix(in srgb,var(--accent) 25%,transparent)}
+.attbox input{flex:1;min-width:160px;border:0!important;outline:none;background:none;padding:4px 2px!important;box-shadow:none!important}
+.attc{display:inline-flex;align-items:center;gap:4px;padding:3px 4px 3px 10px;border-radius:999px;font-size:13px;background:var(--line)}
+.attc.u{background:color-mix(in srgb,var(--accent) 22%,transparent);font-weight:600}
+.attc:not(:has(button)){padding-right:10px}
+.attc button{border:0;background:none;color:inherit;cursor:pointer;font-size:15px;line-height:1;width:20px;height:20px;border-radius:50%}
+.attc button:hover{background:color-mix(in srgb,var(--fg) 15%,transparent)}
+.attsug{position:relative;z-index:5;margin-top:4px;border:1px solid var(--line);border-radius:10px;background:var(--surface);box-shadow:var(--shadow);max-height:260px;overflow:auto}
+.attsug [role=option]{display:flex;justify-content:space-between;gap:10px;padding:8px 10px;cursor:pointer}
+.attsug [role=option].on,.attsug [role=option]:hover{background:var(--accent-tint)}
+.attsug small{color:var(--muted)}
+.remh{display:block;font-size:11.5px;color:var(--k);font-weight:600;margin:0 0 2px!important}

@@ -1516,29 +1516,49 @@ function evVal(b) {
   return { title: need(b.title, 'tiêu đề').slice(0, 200), kind: oneOf(b.kind || 'hop', EV_KIND, 'Loại'), all_day, start_date, start_time, end_date, end_time,
     repeat, rep_until: repeat ? date(b.rep_until, 'Lặp đến ngày') : null, remind, location: txt(b.location), attendees: txt(b.attendees), note: txt(b.note), shared: b.shared !== false };
 }
-const EV_COLS = ['title', 'kind', 'all_day', 'start_date', 'start_time', 'end_date', 'end_time', 'repeat', 'rep_until', 'remind', 'location', 'attendees', 'note', 'shared'];
+const EV_COLS = ['title', 'kind', 'all_day', 'start_date', 'start_time', 'end_date', 'end_time', 'repeat', 'rep_until', 'remind', 'location', 'attendees', 'note', 'shared', 'attendee_ids'];
 const EV_SQL = `SELECT e.id, e.project_id, ${EV_COLS.filter(c => !/date|until/.test(c)).map(c => 'e.' + c).join(', ')}, to_char(e.start_date,'YYYY-MM-DD') AS start_date, to_char(e.end_date,'YYYY-MM-DD') AS end_date,
-  to_char(e.rep_until,'YYYY-MM-DD') AS rep_until, e.created_by, u.full_name AS creator, p.code AS project_code FROM pl_event e LEFT JOIN app_user u ON u.id = e.created_by LEFT JOIN project p ON p.id = e.project_id`;
-// không có ?project → mọi dự án được xem (để nhắc giờ ở mọi màn hình)
+  to_char(e.rep_until,'YYYY-MM-DD') AS rep_until, e.created_by, u.full_name AS creator, p.code AS project_code,
+  coalesce((SELECT json_agg(json_build_object('id', a.id, 'name', a.full_name, 'title', a.job_title)) FROM app_user a WHERE a.id = ANY(e.attendee_ids)), '[]') AS people
+  FROM pl_event e LEFT JOIN app_user u ON u.id = e.created_by LEFT JOIN project p ON p.id = e.project_id`;
+// không có ?project → mọi dự án được xem (để nhắc giờ ở mọi màn hình); người được mời luôn thấy sự kiện, kể cả «chỉ mình tôi»
 route('GET', '/api/events', async ({ user, query }) => {
-  const ids = await visibleProjects(user, uid(query.project));
-  return q(`${EV_SQL} WHERE e.project_id = ANY($1) AND (e.shared OR e.created_by = $2) ORDER BY e.start_date, e.start_time NULLS FIRST LIMIT 5000`, [ids, user.id]);
+  const pid = uid(query.project), ids = await visibleProjects(user, pid);
+  return q(`SELECT x.*, $2 = ANY(x.attendee_ids) AS invited FROM (${EV_SQL}) x
+    WHERE (x.project_id = ANY($1) AND (x.shared OR x.created_by = $2)) OR ($2 = ANY(x.attendee_ids) AND ($3::uuid IS NULL OR x.project_id = $3))
+    ORDER BY x.start_date, x.start_time NULLS FIRST LIMIT 5000`, [ids, user.id, pid]);
 });
+// người tham dự trong hệ thống: chỉ nhận tài khoản đang hoạt động
+const attIds = async v => { const ids = [...new Set((Array.isArray(v) ? v : []).filter(uid))]; return ids.length ? (await q(`SELECT id FROM app_user WHERE id = ANY($1) AND active`, [ids])).map(r => r.id) : []; };
+// lời mời: người mới được mời (hoặc sự kiện đổi giờ) → thẻ mời hiện trên màn hình của họ lần tới mở app
+async function inviteSync(user, eventId, ids, changed) {
+  const others = ids.filter(id => id !== user.id);
+  await q(`DELETE FROM pl_event_invite WHERE event_id = $1 AND NOT (user_id = ANY($2))`, [eventId, others]);
+  for (const id of others) await q(`INSERT INTO pl_event_invite (event_id, user_id) VALUES ($1,$2) ON CONFLICT (event_id, user_id) DO UPDATE SET seen_at = CASE WHEN $3 THEN NULL ELSE pl_event_invite.seen_at END, changed = pl_event_invite.changed OR $3`, [eventId, id, changed]);
+}
+route('GET', '/api/invites', async ({ user }) => q(`SELECT x.*, i.changed FROM pl_event_invite i JOIN (${EV_SQL}) x ON x.id = i.event_id
+  WHERE i.user_id = $1 AND i.seen_at IS NULL AND (x.end_date >= to_char(current_date, 'YYYY-MM-DD') OR x.repeat <> '') ORDER BY x.start_date, x.start_time NULLS FIRST LIMIT 50`, [user.id]));
+route('POST', '/api/invites/:id/seen', async ({ user, params }) => { await q(`UPDATE pl_event_invite SET seen_at = now(), changed = false WHERE event_id = $1 AND user_id = $2`, [params.id, user.id]); return { ok: true }; });
 const evOf = async (user, id) => {
   const e = notFound(await one(`SELECT * FROM pl_event WHERE id = $1`, [id]), 'sự kiện'); await must(user, e.project_id);
   if (e.created_by !== user.id && !user.is_admin) deny('Chỉ người tạo được sửa / xóa sự kiện');
   return e;
 };
 route('POST', '/api/events', async ({ user, body }) => {
-  await must(user, body.project_id); const v = evVal(body);
+  await must(user, body.project_id); const v = { ...evVal(body), attendee_ids: await attIds(body.attendee_ids) };
   const r = await one(`INSERT INTO pl_event (project_id, created_by, ${EV_COLS.join(', ')}) VALUES ($1,$2,${EV_COLS.map((_, i) => '$' + (i + 3)).join(',')}) RETURNING id`,
     [body.project_id, user.id, ...EV_COLS.map(c => v[c])]);
+  await inviteSync(user, r.id, v.attendee_ids, false);
   await log(user, body.project_id, 'event', r.id, 'create', `${v.title} · ${dmy(v.start_date)}${v.start_time ? ' ' + v.start_time : ''}`);
   return { id: r.id };
 });
 route('PUT', '/api/events/:id', async ({ user, params, body }) => {
-  const e = await evOf(user, params.id), v = evVal(body);
+  const e = await evOf(user, params.id), v = { ...evVal(body), attendee_ids: await attIds(body.attendee_ids) };
   await q(`UPDATE pl_event SET ${EV_COLS.map((c, i) => `${c} = $${i + 2}`).join(', ')}, updated_at = now() WHERE id = $1`, [e.id, ...EV_COLS.map(c => v[c])]);
+  // đổi ngày / giờ / địa điểm → báo lại người đã được mời
+  const iso = x => x instanceof Date ? x.toISOString().slice(0, 10) : x;
+  const changed = iso(e.start_date) !== v.start_date || (e.start_time || null) !== v.start_time || (e.location || null) !== v.location || e.repeat !== v.repeat;
+  await inviteSync(user, e.id, v.attendee_ids, changed);
   await log(user, e.project_id, 'event', e.id, 'update', v.title);
   return { ok: true };
 });
@@ -1812,6 +1832,7 @@ server.headersTimeout = 60e3;
   await q(`ALTER TABLE pl_check DROP CONSTRAINT IF EXISTS pl_check_kind_check; ALTER TABLE pl_check ADD CONSTRAINT pl_check_kind_check CHECK (kind IN ('ho_so','ket_qua','du_thao','tep'))`);
   await q(`ALTER TABLE pl_item ADD COLUMN IF NOT EXISTS issue_kind text, ADD COLUMN IF NOT EXISTS issue_text text, ADD COLUMN IF NOT EXISTS issue_by uuid REFERENCES app_user(id), ADD COLUMN IF NOT EXISTS issue_at timestamptz`);
   await q(fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8').match(/CREATE TABLE IF NOT EXISTS pl_event[\s\S]*?\);\s*CREATE INDEX[^;]*;/)[0]);
+  await q(fs.readFileSync(path.join(__dirname, 'schema.sql'), 'utf8').match(/-- người tham dự[\s\S]*?pl_event_invite_user[^;]*;/)[0]);
   // mục «phải soạn» có mẫu riêng mà chưa ghi loại văn bản → ghi theo mẫu
   for (const i of await q(`SELECT i.id, i.name, i.kind, s.name AS step FROM pl_item i JOIN pl_step s ON s.id = i.step_id WHERE i.kind = 'soan' AND i.doc_kind IS NULL`)) {
     const m = MAU.find(i, { name: i.step }); if (m) await q(`UPDATE pl_item SET doc_kind = $2 WHERE id = $1`, [i.id, m.kind]);

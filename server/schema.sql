@@ -277,3 +277,14 @@ CREATE TABLE IF NOT EXISTS pl_event (
   updated_at  timestamptz
 );
 CREATE INDEX IF NOT EXISTS pl_event_proj ON pl_event (project_id, start_date);
+-- người tham dự sự kiện là người dùng trong hệ thống: sự kiện hiện trên lịch + thẻ mời trên màn hình của họ
+ALTER TABLE pl_event ADD COLUMN IF NOT EXISTS attendee_ids uuid[] NOT NULL DEFAULT '{}';
+CREATE TABLE IF NOT EXISTS pl_event_invite (
+  event_id   uuid NOT NULL REFERENCES pl_event(id) ON DELETE CASCADE,
+  user_id    uuid NOT NULL REFERENCES app_user(id) ON DELETE CASCADE,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  seen_at    timestamptz,             -- NULL = chưa xem thẻ mời
+  changed    boolean NOT NULL DEFAULT false,   -- sự kiện đổi giờ / địa điểm sau khi mời
+  PRIMARY KEY (event_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS pl_event_invite_user ON pl_event_invite (user_id) WHERE seen_at IS NULL;
