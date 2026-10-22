@@ -390,7 +390,8 @@ function lateChart(L){
 }
 VIEW["screen-09-00"]={
   actions:()=>"",
-  load:()=>{const p=ovProj();return p?api("GET","/api/overview"+qs({project:p.id})):Promise.resolve(null)},
+  load:async()=>{const p=ovProj();if(!p)return null;const Q=qs({project:p.id});
+    const [ov,ins,ev]=await Promise.all([api("GET","/api/overview"+Q),api("GET","/api/insight"+Q).catch(()=>null),api("GET","/api/events"+Q).catch(()=>[])]);return {...ov,ins,ev}},
   view(d){
     if(!d||!d.projects.length)return noProject();
     const p=d.projects[0];
@@ -399,7 +400,7 @@ VIEW["screen-09-00"]={
     ST.ovPB=PB;ST.ovPid=p.id;
     // 4 thẻ số liệu đã có ở Kế hoạch pháp lý — Tổng quan bỏ (user 22/10)
     return `${p.no_base?`<div style="margin-bottom:14px">${banner("a",`${p.no_base}/${p.total} bước chưa có kế hoạch gốc nên chưa so được chậm / sớm. Vào Kế hoạch pháp lý › «Chốt kế hoạch gốc» khi đã thống nhất tiến độ.`)}</div>`:""}
-    ${projCard(p,d.today)}
+    ${projCard(p,d.today)}${insightView(d)}
     <div class="grid g2e" style="margin-top:14px"><div class="card"><h3>Các bước chậm so với kế hoạch gốc</h3>${lateChart(p.late_steps.slice(0,10))}${note("Độ dài thanh = số ngày chậm (dự kiến hoàn thành trừ kế hoạch gốc, hoặc số ngày cơ quan quá hạn trả kết quả). Bấm vào thanh để mở bước.")}</div>
       <div class="card"><h3>Nguyên nhân vướng mắc</h3>${causeChart(d.causes,ovc)}${note("Nguyên nhân do người phụ trách ghi khi bấm vào hồ sơ / công việc quá hạn. «Chưa ghi nguyên nhân» = đã quá hạn mà chưa ai giải trình. Bấm vào thanh để xem từng hồ sơ, bấm hồ sơ để xem hoặc ghi lý do.")}</div></div>
     ${PB.length?`<div class="card" id="ovProb" style="margin-top:14px"><div class="plh"><h3 style="margin:0">${ovc?esc(ovc):"Tình trạng và nguyên nhân vướng mắc"} <small class="muted" style="font-weight:400">${PB.length} mục</small></h3><span style="flex:1"></span>${ovc?`<button class="btn sm" type="button" data-cause="">${ico("x")}Bỏ lọc</button>`:""}</div>
@@ -407,6 +408,7 @@ VIEW["screen-09-00"]={
   after(d){
     // bấm bước → sổ ngay nội dung (hồ sơ, quá hạn thì giải trình / đề xuất hạn mới); bấm thẻ số liệu → danh sách tương ứng ở Kế hoạch
     $$("[data-step]").forEach(el=>{const f=()=>stepPanel(el.dataset.step);el.onclick=f;el.onkeydown=e=>{if(e.key==="Enter")f()}});
+    $$("[data-ovev]").forEach(el=>{const f=()=>{const ev=(d.ev||[]).find(x=>x.id===el.dataset.ovev);ev&&editEvent(ev,{pid:ev.project_id,ev:d.ev})};el.onclick=f;el.onkeydown=e=>{if(e.key==="Enter")f()}});
     // bấm thanh nguyên nhân → lọc bảng; bấm dòng → xem / ghi nguyên nhân của hồ sơ (hoặc cả công việc)
     $$("[data-cause]").forEach(el=>{const f=()=>{const c=el.dataset.cause;ST.tab.ovc=!c||ST.tab.ovc===c?null:c;render();$("#ovProb")?.scrollIntoView({block:"nearest",behavior:"smooth"})};el.onclick=f;el.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();f()}}});
     $$("[data-prob]").forEach(el=>{const x=ST.ovPB[+el.dataset.prob],f=()=>extModal(x.step_id,x.item_id||null,ST.ovPid);el.onclick=f;el.onkeydown=e=>{if(e.key==="Enter")f()}});
@@ -415,6 +417,35 @@ VIEW["screen-09-00"]={
     $$("[data-plan]").forEach(b=>b.onclick=()=>{setProj(b.dataset.plan);ST.data={};go("screen-09-02")});
     $("#rpHtml")&&($("#rpHtml").onclick=e=>exportFullHtml(e.currentTarget));
   }};
+/* 4 khối cho pháp chế: Tuần này cần làm · Hồ sơ đang ở cơ quan · Nghẽn tiến độ · Rủi ro pháp lý sắp tới — bấm dòng → mở việc (stepPanel) */
+const WK={qua_han:["r","!","Quá hạn"],tra:["a","⏳","Cơ quan trả"],han:["b","◷","Hạn xong"],ho_so:["a","▤","Hạn hồ sơ"],bat_dau:["g","▶","Bắt đầu"],du_thao:["b","✎","Dự thảo"],ev:["p","●","Lịch"]};
+function insightView(d){
+  const I=d.ins;if(!I)return "";
+  const t=I.today,in7=isoAdd(t,7),dayName=x=>x===t?"Hôm nay":x===isoAdd(t,1)?"Ngày mai":`${WD[new Date(x+"T00:00:00").getDay()]} ${dm(x)}`;
+  // tuần này: việc + lịch họp / sự kiện của tôi (cả sự kiện được mời); dự thảo chờ chốt gom một dòng
+  const evs=evItems(d.ev,t,in7).filter(e=>e.d===e.occ).map(e=>({d:e.d,k:"ev",t:(e.tm?e.tm+" ":"")+e.t,sub:e.sub,col:e.col,ev:e.ev.id}));
+  const drafts=I.week.filter(w=>w.k==="du_thao"),W=[...I.week.filter(w=>w.k!=="du_thao"),...evs].sort((a,b)=>a.d.localeCompare(b.d)||(a.k==="ev"?-1:0)-(b.k==="ev"?-1:0));
+  const days=[...new Set(W.map(w=>w.d))];
+  const wrow=w=>{const [c,ic]=WK[w.k];return `<li class="wkr" ${w.step?`data-step="${w.step}" tabindex="0" role="button"`:w.ev?`data-ovev="${w.ev}" tabindex="0" role="button"`:""}><span class="wki k-${c}" ${w.col?`style="--k:${w.col}"`:""} aria-hidden="true">${ic}</span><div><b>${esc(w.t)}</b><small>${esc([w.sub,w.owner].filter(Boolean).join(" · "))}</small></div></li>`};
+  const week=`<div class="card"><h3>Tuần này cần làm <small class="muted" style="font-weight:400">${dmy(t)} → ${dmy(in7)}</small></h3>
+    ${W.length||drafts.length?`${days.map(x=>`<div class="wkd"><div class="wkh ${x===t?"now":""}">${dayName(x)}</div><ul class="wkl">${W.filter(w=>w.d===x).map(wrow).join("")}</ul></div>`).join("")}
+      ${drafts.length?`<a class="wkdr" href="#" data-go="screen-09-04"><span class="wki k-b" aria-hidden="true">✎</span><span><b>${drafts.length} dự thảo văn bản chờ kiểm tra và chốt</b><small>${esc(drafts.slice(0,3).map(x=>x.t.replace(/^Dự thảo chờ chốt: /,"")).join(" · "))}${drafts.length>3?" …":""}</small></span><span class="muted">›</span></a>`:""}`
+      :`<p class="muted">Tuần này không có việc tới hạn.</p>`}</div>`;
+  const ag=`<div class="card"><h3>Hồ sơ đang ở cơ quan <small class="muted" style="font-weight:400">${I.agency.length} hồ sơ chờ kết quả</small></h3>
+    ${I.agency.length?`<ul class="agl">${I.agency.map(a=>`<li data-step="${a.id}" tabindex="0" role="button"><div><b>${esc(a.name)}</b><small>${esc(a.agency||"chưa ghi cơ quan")} · nộp ${dmy(a.submit)}${a.proc_days?` · thời hạn ${a.proc_days} ngày${a.workdays?" làm việc":""}`:""}${a.owner?" · "+esc(a.owner):""}</small></div>
+      ${a.left==null?pill("~b:Chưa có thời hạn giải quyết"):a.left<0?pill(`~r:⚠ Quá hạn trả ${-a.left} ngày`):a.left===0?pill("~a:Hạn trả hôm nay"):pill(`~${a.left<=3?"a":"g"}:Còn ${a.left} ngày (hạn ${dm(a.due)})`)}</li>`).join("")}</ul>`
+      :`<p class="muted">Chưa có hồ sơ nào đang chờ cơ quan trả kết quả.</p><p class="muted" style="font-size:12.5px">Khi nộp hồ sơ, mở việc → chọn trạng thái «Đã nộp, chờ kết quả», ghi <b>ngày nộp</b> và <b>thời hạn cơ quan giải quyết</b>; hồ sơ sẽ hiện ở đây kèm số ngày còn lại / quá hạn trả.</p>`}</div>`;
+  const B=I.block;
+  const bl=`<div class="card"><h3>Nghẽn tiến độ ${B.slip?`<small class="err-t" style="font-weight:400">dự án chậm ${B.slip} ngày · dự kiến xong ${dmy(B.finish)}</small>`:""}</h3>
+    ${B.list.length?`<ul class="agl">${B.list.map(x=>`<li data-step="${x.id}" tabindex="0" role="button"><div><b>${esc(x.name)}</b><small><span class="${x.reason.none?"err-t":""}">${esc(x.reason.label)}</span>${x.reason.text?" — "+esc(x.reason.text):""}${x.owner?" · "+esc(x.owner):""}</small>${x.down?`<small>${x.down} việc phía sau đang chờ việc này</small>`:""}</div>
+      ${pill(x.late_kind==="qua_han_tra"?`~r:Cơ quan quá hạn ${x.late} ngày`:x.late_kind==="qua_han_ke_hoach"?`~r:Quá hạn ${x.late} ngày`:`~a:Chậm ${Math.max(x.late,x.slip)} ngày so với gốc`)}</li>`).join("")}</ul><p class="muted" style="font-size:12.5px;margin:8px 0 0">Xếp theo số việc phía sau phải chờ. Bấm một việc để ghi nguyên nhân / vướng ở đâu.</p>`
+      :`<p class="muted">✓ Không có việc nào đang chậm.</p>`}</div>`;
+  const RK={tre_han:"Nguy cơ trễ hạn",co_quan:"Cơ quan",het_hieu_luc:"Căn cứ hết hiệu lực",quy_dinh_moi:"Quy định mới",ai:"Cảnh báo AI",gia_han:"Gia hạn"};
+  const rk=`<div class="card"><h3>Rủi ro pháp lý sắp tới <small class="muted" style="font-weight:400">14 ngày tới · quy định mới 90 ngày tới</small></h3>
+    ${I.risk.length?`<ul class="agl">${I.risk.map(x=>`<li ${x.step?`data-step="${x.step}" tabindex="0" role="button"`:""}><span class="pill p-${x.lv==="cao"?"r":"a"}" style="flex:none">${esc(RK[x.k]||"Rủi ro")}</span><div><small style="color:var(--fg);font-size:13px">${esc(x.text.replace(/^Nguy cơ trễ hạn /,""))}</small></div></li>`).join("")}</ul>`
+      :`<p class="muted">✓ Chưa thấy rủi ro pháp lý nào trong 14 ngày tới.</p>`}</div>`;
+  return `<div class="grid g2e" style="margin-top:14px">${week}${ag}</div><div class="grid g2e" style="margin-top:14px">${bl}${rk}</div>`;
+}
 function projCard(p,t){
   const s=PST[p.status];
   if(!p.total)return `<div class="card ovp"><div class="ovh"><div><b class="ovt">${esc(p.code)} · ${esc(p.name)}</b><small class="muted">${esc(p.location||"")}</small></div>${pill(`~${s[0]}:${s[2]} ${s[1]}`)}</div><p class="muted">Chưa khởi tạo các bước pháp lý.</p><button class="btn sm pri" type="button" data-plan="${p.id}">${ico("cal")}Lập kế hoạch pháp lý</button></div>`;
@@ -768,7 +799,7 @@ async function buildFullHtml(){
   const pid=ovProj()?.id||curProj(),Q=qs({project:pid}),snap={};
   const get=async u=>{snap[u]=await api("GET",u);return snap[u]};
   const steps=await get("/api/steps"+Q);
-  await Promise.all(["/api/me","/api/ref","/api/overview"+Q,"/api/today"+Q,"/api/checklist"+Q,`/api/projects/${pid}/info`,"/api/docs"+Q,"/api/households"+Q,"/api/docs-pending"+Q,"/api/tpl","/api/events"+Q,"/api/events","/api/extensions"+Q].map(get));
+  await Promise.all(["/api/me","/api/ref","/api/overview"+Q,"/api/today"+Q,"/api/checklist"+Q,`/api/projects/${pid}/info`,"/api/docs"+Q,"/api/households"+Q,"/api/docs-pending"+Q,"/api/tpl","/api/events"+Q,"/api/events","/api/extensions"+Q,"/api/insight"+Q].map(get));
   for(let i=0;i<steps.length;i+=12)await Promise.all(steps.slice(i,i+12).map(s=>get("/api/steps/"+s.id)));
   for(const d of snap["/api/docs"+Q])await get("/api/docs/"+d.id);
   snap["/api/ai-chats"]=[];   // bản xem không có hội thoại AI — tránh báo «không có dữ liệu» ở màn Trợ lý AI

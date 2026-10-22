@@ -1205,3 +1205,20 @@ details[open]>summary>.ckcar{transform:rotate(90deg)}
 .attsug [role=option].on,.attsug [role=option]:hover{background:var(--accent-tint)}
 .attsug small{color:var(--muted)}
 .remh{display:block;font-size:11.5px;color:var(--k);font-weight:600;margin:0 0 2px!important}
+
+/* Tổng quan: Tuần này · Hồ sơ ở cơ quan · Nghẽn tiến độ · Rủi ro */
+.wkd{display:grid;grid-template-columns:92px minmax(0,1fr);gap:10px;padding:8px 0;border-top:1px solid var(--line)}
+.wkd:first-of-type{border-top:0}
+.wkh{font-size:12.5px;color:var(--muted);font-weight:600;padding-top:3px}.wkh.now{color:var(--accent-text,var(--accent))}
+.wkl,.agl{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:6px}
+.wkr,.agl li{display:flex;gap:10px;align-items:flex-start;padding:6px 8px;margin:0 -8px;border-radius:8px}
+.wkr[role=button],.agl li[role=button]{cursor:pointer}.wkr[role=button]:hover,.agl li[role=button]:hover{background:var(--accent-tint)}
+.agl li{justify-content:space-between;border-bottom:1px solid var(--line);border-radius:0;margin:0;padding:8px 2px}.agl li:last-child{border-bottom:0}
+.agl li>div{min-width:0;flex:1}.agl .pill{flex:none}
+.wkr>div,.agl li>div{display:flex;flex-direction:column;gap:2px}
+.wkr b,.agl b{font-size:13.5px;font-weight:600}.wkr small,.agl small{font-size:12px;color:var(--muted)}
+.wki{width:22px;height:22px;flex:none;border-radius:50%;display:grid;place-items:center;font-size:11px;font-weight:700;color:var(--k);background:color-mix(in srgb,var(--k) 18%,transparent)}
+.wki.k-p{--k:#3b7dd8}
+.wkdr{display:flex;align-items:center;gap:10px;margin-top:8px;padding:10px;border:1px dashed var(--line);border-radius:10px;color:inherit;text-decoration:none}
+.wkdr:hover{background:var(--accent-tint)}.wkdr>span:nth-child(2){flex:1;display:flex;flex-direction:column;gap:2px;min-width:0}.wkdr small{font-size:12px;color:var(--muted)}
+.agl small .err-t{display:inline}

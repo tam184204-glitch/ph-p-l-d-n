@@ -495,6 +495,64 @@ route('PUT', '/api/issue', async ({ user, body }) => {
   }
   return { ok: true };
 });
+// ===== Tổng quan cho pháp chế: hồ sơ đang ở cơ quan · tuần này · nghẽn tiến độ · rủi ro pháp lý sắp tới =====
+route('GET', '/api/insight', async ({ user, query }) => {
+  const pid = uid(query.project) || bad('Thiếu dự án'); await must(user, pid);
+  const t = today(), in7 = addDays(t, 7), in14 = addDays(t, 14), in90 = addDays(t, 90);
+  const S = (await stepRows([pid])).filter(s => s.status !== 'bo_qua'), by = Object.fromEntries(S.map(s => [s.id, s])), open = S.filter(s => s.open);
+  const [items, docs, basis, lib, checks, ext] = await Promise.all([
+    q(`SELECT i.id, i.name, i.step_id, i.required, i.issue_kind, i.issue_text, coalesce(i.due_on, s.plan_end) AS due,
+        (i.done OR i.ref_text IS NOT NULL OR EXISTS (SELECT 1 FROM pl_file f WHERE f.item_id = i.id AND f.current)) AS ok
+      FROM pl_item i JOIN pl_step s ON s.id = i.step_id WHERE s.project_id = $1 AND NOT i.na AND s.status NOT IN ('xong','bo_qua') AND i.kind <> 'ket_qua'`, [pid]),
+    q(`SELECT d.id, d.subject, d.step_id FROM pl_doc d JOIN pl_step s ON s.id = d.step_id WHERE s.project_id = $1 AND d.status = 'nhap' AND s.status NOT IN ('xong','bo_qua') AND (s.status IN ('dang','cho_kq') OR s.plan_start <= $2)`, [pid, in7]),
+    q(`SELECT s.id AS step_id, d.number_text, d.code, d.title, d.effective_from, d.effective_to, d.src_status FROM pl_step s JOIN pl_procedure_basis b ON b.procedure_id = s.procedure_id JOIN pl_legal_doc d ON d.src_id = b.legal_src_id
+      WHERE s.project_id = $1 AND s.status NOT IN ('xong','bo_qua')`, [pid]),
+    q(`SELECT number_text, code, title, effective_from FROM pl_legal_doc WHERE effective_from > $1 AND effective_from <= $2 ORDER BY effective_from`, [t, in90]),
+    q(`SELECT DISTINCT ON (c.kind, c.target_id, c.step_id) c.step_id, c.result FROM pl_check c JOIN pl_step s ON s.id = c.step_id WHERE s.project_id = $1 AND s.status NOT IN ('xong','bo_qua') AND c.status <> 'dang'
+      ORDER BY c.kind, c.target_id, c.step_id, c.created_at DESC`, [pid]),
+    q(`SELECT DISTINCT ON (e.step_id, e.item_id) e.step_id, e.status, e.decision_note, e.new_due FROM pl_extend e WHERE e.project_id = $1 AND e.status <> 'rut' ORDER BY e.step_id, e.item_id, e.created_at DESC`, [pid])]);
+  const short = s => ({ id: s.id, name: s.name, stt: s.stt, owner: s.owner });
+  // 1) hồ sơ đã nộp, đang chờ cơ quan trả kết quả: hạn trả = ngày nộp + thời hạn giải quyết
+  const agency = open.filter(s => s.status === 'cho_kq').map(s => ({ ...short(s), agency: s.agency_text || null, submit: s.act_submit, due: s.due_on || null,
+    left: s.due_on ? diffDays(s.due_on, t) : null, proc_days: s.proc_days, workdays: s.workdays })).sort((a, b) => (a.left ?? 1e4) - (b.left ?? 1e4));
+  // 2) tuần này (hôm nay → 7 ngày tới): hạn xong việc, hạn hồ sơ còn thiếu, việc tới kỳ bắt đầu, cơ quan tới hạn trả, dự thảo chờ chốt; việc quá hạn nhắc lại ở hôm nay
+  const week = [];
+  open.filter(s => s.plan_end && s.plan_end < t && s.status !== 'cho_kq').forEach(s => week.push({ d: t, k: 'qua_han', step: s.id, t: s.name, sub: `Quá hạn ${diffDays(t, s.plan_end)} ngày (hạn ${dmy(s.plan_end)})`, owner: s.owner }));
+  open.filter(s => s.plan_end >= t && s.plan_end <= in7 && s.status !== 'cho_kq').forEach(s => week.push({ d: s.plan_end, k: 'han', step: s.id, t: 'Hạn xong: ' + s.name, sub: s.missing ? `còn thiếu ${s.missing}/${s.req_n} hồ sơ` : 'đủ hồ sơ', owner: s.owner }));
+  open.filter(s => s.status === 'chua' && s.plan_start >= t && s.plan_start <= in7).forEach(s => week.push({ d: s.plan_start, k: 'bat_dau', step: s.id, t: 'Bắt đầu: ' + s.name, sub: `hạn xong ${dmy(s.plan_end)}`, owner: s.owner }));
+  agency.filter(a => a.due && a.due >= t && a.due <= in7).forEach(a => week.push({ d: a.due, k: 'tra', step: a.id, t: 'Cơ quan tới hạn trả: ' + a.name, sub: a.agency || 'đôn đốc lấy kết quả', owner: a.owner }));
+  const miss = items.filter(i => !i.ok && i.required);
+  const dueSoon = {}; miss.filter(i => i.due >= t && i.due <= in7 && by[i.step_id]?.plan_end !== i.due).forEach(i => { const k = i.step_id + '|' + i.due; (dueSoon[k] = dueSoon[k] || []).push(i); });
+  Object.values(dueSoon).forEach(L => week.push({ d: L[0].due, k: 'ho_so', step: L[0].step_id, t: `Hạn nộp ${L.length > 1 ? L.length + ' hồ sơ' : 'hồ sơ «' + L[0].name + '»'}`, sub: by[L[0].step_id]?.name, owner: by[L[0].step_id]?.owner }));
+  docs.forEach(x => week.push({ d: t, k: 'du_thao', step: x.step_id, doc: x.id, t: 'Dự thảo chờ chốt: ' + x.subject, sub: by[x.step_id]?.name, owner: by[x.step_id]?.owner }));
+  week.sort((a, b) => a.d.localeCompare(b.d) || 'qua_han,tra,han,ho_so,bat_dau,du_thao'.indexOf(a.k) - 'qua_han,tra,han,ho_so,bat_dau,du_thao'.indexOf(b.k));
+  // 3) nghẽn tiến độ: việc chưa xong đang chậm, xếp theo số việc phía sau phải chờ nó (đi ngược quan hệ «phải xong trước»)
+  const next = {}; S.forEach(s => (s.deps || []).forEach(d => (next[d] = next[d] || []).push(s.id)));
+  const downstream = id => { const seen = new Set(), st = [id]; while (st.length) for (const n of next[st.pop()] || []) if (!seen.has(n) && by[n]?.open) { seen.add(n); st.push(n); } return seen.size; };
+  const reason = s => { if (s.issue_kind) return { label: ISSUE[s.issue_kind], text: s.issue_text || '' };
+    const it = items.find(i => i.step_id === s.id && i.issue_kind); if (it) return { label: ISSUE[it.issue_kind], text: `${it.name}${it.issue_text ? ': ' + it.issue_text : ''}` };
+    if (s.late_kind === 'qua_han_tra') return { label: ISSUE.co_quan, text: `Cơ quan quá hạn trả ${s.late} ngày` };
+    const waits = (s.deps || []).map(d => by[d]).filter(d => d && d.open);
+    if (s.status === 'chua' && waits.length) return { label: 'Chờ bước trước', text: waits.map(d => d.name).join('; '), auto: true };
+    return { label: 'Chưa ghi nguyên nhân', text: s.missing ? `còn thiếu ${s.missing}/${s.req_n} hồ sơ` : '', none: true }; };
+  const finish = open.map(s => s.plan_end).filter(Boolean).sort().at(-1) || null, slip = Math.max(0, ...open.map(s => s.slip || 0));
+  const block = open.filter(s => s.late > 0 || s.slip > 0).map(s => ({ ...short(s), late: s.late, late_kind: s.late_kind, slip: s.slip, plan_end: s.plan_end, down: downstream(s.id), reason: reason(s) }))
+    .sort((a, b) => b.down - a.down || Math.max(b.late, b.slip) - Math.max(a.late, a.slip)).slice(0, 8);
+  // 4) rủi ro pháp lý sắp tới
+  const risk = [], R = (lv, k, text, step) => risk.push({ lv, k, text, step: step || null });
+  agency.filter(a => a.left != null && a.left < 0).forEach(a => R('cao', 'co_quan', `Cơ quan quá hạn trả kết quả ${-a.left} ngày: «${a.name}»${a.agency ? ' — ' + a.agency : ''}. Cần văn bản đôn đốc / làm việc trực tiếp.`, a.id));
+  agency.filter(a => a.left != null && a.left >= 0 && a.left <= 3).forEach(a => R('tb', 'co_quan', `Còn ${a.left} ngày tới hạn cơ quan trả kết quả «${a.name}» — chuẩn bị đôn đốc.`, a.id));
+  open.filter(s => s.status !== 'cho_kq' && s.plan_end >= t && s.plan_end <= in14 && s.missing > 0).forEach(s => R(diffDays(s.plan_end, t) <= 5 ? 'cao' : 'tb', 'tre_han', `Nguy cơ trễ hạn «${s.name}»: còn ${diffDays(s.plan_end, t)} ngày, còn thiếu ${s.missing}/${s.req_n} hồ sơ.`, s.id));
+  const seenB = new Set();
+  basis.forEach(b => { const e = effText(b); if (!/HẾT/.test(e)) return; const k = b.step_id + (b.number_text || b.code); if (seenB.has(k)) return; seenB.add(k);
+    R('cao', 'het_hieu_luc', `Căn cứ ${b.number_text || b.code} (${b.title}) đã hết hiệu lực nhưng đang là căn cứ của thủ tục «${by[b.step_id]?.name}» — rà soát hồ sơ, văn bản viện dẫn.`, b.step_id); });
+  lib.forEach(d => R('tb', 'quy_dinh_moi', `Quy định mới có hiệu lực từ ${dmy(d.effective_from)}: ${d.number_text || d.code} — ${d.title}. Kiểm tra ảnh hưởng tới các thủ tục đang làm.`));
+  const aiW = {}; checks.forEach(c => (c.result?.canh_bao || []).filter(w => w.loai === 'het_hieu_luc' || w.muc_do === 'cao').forEach(w => (aiW[c.step_id] = aiW[c.step_id] || []).push(w)));
+  Object.entries(aiW).forEach(([sid, W]) => by[sid]?.open && R('tb', 'ai', `AI còn ${W.length} cảnh báo mức cao chưa xử lý ở «${by[sid].name}»: ${String(W[0].noi_dung).slice(0, 160)}${String(W[0].noi_dung).length > 160 ? '…' : ''}`, sid));
+  ext.filter(e => e.status === 'tu_choi' && by[e.step_id]?.open).forEach(e => R('cao', 'gia_han', `Đề xuất gia hạn bị từ chối ở «${by[e.step_id].name}»${e.decision_note ? ': ' + e.decision_note : ''}.`, e.step_id));
+  risk.sort((a, b) => (a.lv === 'cao' ? 0 : 1) - (b.lv === 'cao' ? 0 : 1));
+  return { today: t, agency, week, block: { slip, finish, list: block }, risk };
+});
 route('GET', '/api/overview', async ({ user, query }) => {
   const list = await visibleProjects(user, query.project || null);
   const [projects, phases, rows, items] = await Promise.all([
