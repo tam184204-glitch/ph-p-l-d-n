@@ -257,7 +257,7 @@ function fillTop(){
   $("#proj").innerHTML=(R.projects.length>1?`<option value="">Tất cả dự án (${R.projects.length})</option>`:"")+R.projects.map(p=>`<option value="${p.id}">${esc(p.code)} ${esc(p.name)}</option>`).join("");
   $("#proj").value=ST.proj;syncRole();
   $("#miniops").innerHTML=`<b><i></i>Kết nối CSDL</b>PostgreSQL · ctg_qlda<br>Đồng bộ QLDA: ${esc(ls)}<br>AI: ${R.ai?"đang bật ("+esc(R.model)+")":"đang tắt (chưa có khóa API)"}<br>In PDF: ${R.print?"Edge":"chưa có"}${ST.me.is_admin?`<br><button class="btn sm" type="button" id="syncBtn">${ico("refresh")}Đồng bộ ngay</button>`:""}`;
-  $("#railFoot").innerHTML=`<span class="who">${esc(ST.me.full_name)}</span>${esc(ST.me.job_title||ST.me.username)}<div class="act"><button type="button" id="pwBtn">Đổi mật khẩu</button><button type="button" id="outBtn">Đăng xuất</button></div><div style="margin-top:8px">1 app · ${SC.length} màn hình · ${MOD}</div>`;
+  $("#railFoot").innerHTML=`<span class="who">${esc(ST.me.full_name)}</span>${esc(ST.me.job_title||ST.me.username)}<div class="act"><button type="button" id="pwBtn">Đổi mật khẩu</button><button type="button" id="outBtn">Đăng xuất</button></div><div style="margin-top:8px">1 app · ${SC.length} màn hình</div>`;
   $("#pwBtn").onclick=()=>changePw(false);
   $("#outBtn").onclick=async()=>{await api("POST","/api/logout").catch(()=>{});ST.data={};showLogin()};
   const sb=$("#syncBtn");sb&&(sb.onclick=async()=>{sb.disabled=true;try{const s=await api("POST","/api/sync");ST.ref=await api("GET","/api/ref");ST.data={};fillTop();render();toast(`Đã đồng bộ: ${s.thu_tuc} thủ tục, ${s.bieu_mau} biểu mẫu, ${s.van_ban_phap_luat} văn bản; thêm ${s.checklist_mau} mục checklist mẫu`)}catch(e){toast(e.message);sb.disabled=false}});
