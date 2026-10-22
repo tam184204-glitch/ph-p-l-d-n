@@ -813,7 +813,9 @@ async function buildFullHtml(){
   snap["/api/invites"]=[];    // bản xem không hiện thẻ mời của người xuất
   const txt=async u=>(await fetch(u,{cache:"no-store"})).text();
   const dataUrl=async u=>{const b=await (await fetch(u)).blob();return await new Promise(r=>{const f=new FileReader();f.onload=()=>r(f.result);f.readAsDataURL(b)})};
-  let [html,css,vb,js,gold,gpmb,dtxd]=await Promise.all([txt("index.html"),txt("app.css"),txt("vanban.js"),txt("app.js"),dataUrl("logo-gold.png"),dataUrl("gpmb.jpg"),dataUrl("dtxd.jpg")]);
+  let [html,css,vb,js,gold,gpmb,dtxd,pdflib]=await Promise.all([txt("index.html"),txt("app.css"),txt("vanban.js"),txt("app.js"),dataUrl("logo-gold.png"),dataUrl("gpmb.jpg"),dataUrl("dtxd.jpg"),txt("vendor/pdf-lib.min.js")]);
+  // tệp hồ sơ nhúng vào bản xuất để mở / in được khi gửi qua Zalo (không có máy chủ)
+  const files={};for(const i of snap["/api/checklist"+Q].items)for(const f of i.file_list||[])files[f.id]=await dataUrl("/api/file/"+f.id);
   // ảnh thẻ GPMB / DTXD nhúng vào tệp (gửi một tệp qua Zalo / email vẫn có ảnh)
   js=js.replace(/,CK_IMG=\{GPMB:"gpmb\.jpg",DTXD:"dtxd\.jpg"\}/,()=>`,CK_IMG={GPMB:${JSON.stringify(gpmb)},DTXD:${JSON.stringify(dtxd)}}`);
   // api() trả số liệu đã chụp; thao tác ghi báo «chỉ xem»
@@ -828,7 +830,7 @@ function __snapApi(m,u){if(m!=="GET")return Promise.reject(new Error("Bản HTML
     .replace('<script src="vanban.js"></script>',()=>`<script>${esc_(vb)}</script>`)
     .replace(/(src|href)="logo-gold\.png"/g,(m,a)=>`${a}="${gold}"`)
     .replace("<title>Cát Tường · Pháp lý dự án</title>",()=>`<title>Cát Tường · Pháp lý dự án (bản xuất ${new Date().toLocaleDateString("vi-VN")})</title>`)
-    .replace('<script src="app.js"></script>',()=>`<script>${esc_(shim)}</script><script>${esc_(js)}</script>`);
+    .replace('<script src="app.js"></script>',()=>`<script>${esc_(shim)};window.__SNAPF=${JSON.stringify(files)}</script><script>${esc_(pdflib)}</script><script>${esc_(js)}</script>`);
   return html;
 }
 async function exportFullHtml(b){
@@ -890,11 +892,53 @@ async function editInfo(pid){
 const CKS={da_co:["g","Đã có"],qua_han:["r","Quá hạn"],hom_nay:["a","Hạn hôm nay"],sap_den:["a","Sắp đến hạn"],thieu:["n","Còn thiếu"]};
 const WD=["Chủ nhật","Thứ hai","Thứ ba","Thứ tư","Thứ năm","Thứ sáu","Thứ bảy"];
 const dueTxt=i=>i.supp&&!i.ok&&i.due?(i.state==="qua_han"?`quá hạn bổ sung ${i.late} ngày`:i.state==="hom_nay"?"hạn bổ sung hôm nay":`hạn bổ sung ${dmy(i.due)}`):!i.ok&&!i.required?(i.due?`nếu có · hạn ${dmy(i.due)}`:"nếu có"):i.ok?(i.done_at?`đã có · ${hm(i.done_at)}${i.done_name?" · "+i.done_name:""}`:i.files?`${i.files} tệp`:i.ref_text?"có số văn bản":"đã có"):!i.due?"chưa có hạn":i.state==="qua_han"?`quá hạn ${i.late} ngày (hạn ${dmy(i.due)})`:i.state==="hom_nay"?"hạn hôm nay":`hạn ${dmy(i.due)}`;
+/* ---------- nút In hồ sơ: ghép tệp PDF / ảnh rồi mở hộp thoại in của Windows (chọn máy in ở đó) ----------
+   chưa có mẫu in riêng (trang bìa, danh mục) — in đúng các tệp đang có. Bản HTML xuất ra: tệp nhúng sẵn trong __SNAPF */
+const fileUrl=id=>window.__SNAPF?.[id]||`/api/file/${id}`;
+let pdfLibP;
+const pdfLib=()=>pdfLibP||(pdfLibP=window.PDFLib?Promise.resolve(window.PDFLib):new Promise((ok,no)=>{const s=document.createElement("script");s.src="vendor/pdf-lib.min.js";s.onload=()=>ok(window.PDFLib);s.onerror=()=>{pdfLibP=null;no(new Error("Không tải được thư viện in"))};document.head.append(s)}));
+function printBlob(b){
+  const u=URL.createObjectURL(b),f=document.createElement("iframe");f.style.cssText="position:fixed;right:0;bottom:0;width:0;height:0;border:0";f.src=u;document.body.append(f);
+  f.onload=()=>setTimeout(()=>{try{f.contentWindow.focus();f.contentWindow.print()}catch(e){open(u,"_blank")}},400);
+  setTimeout(()=>{f.remove();URL.revokeObjectURL(u)},10*60e3);
+}
+// ghép: PDF giữ nguyên trang; ảnh đặt vừa khổ A4; tệp khác (Word, Excel…) bỏ qua
+async function toPdf(L){
+  const {PDFDocument}=await pdfLib(),out=await PDFDocument.create(),skipped=[];
+  for(const {b,name} of L){try{
+    if(b.type==="application/pdf"||/\.pdf$/i.test(name)){const src=await PDFDocument.load(await b.arrayBuffer(),{ignoreEncryption:true});(await out.copyPages(src,src.getPageIndices())).forEach(p=>out.addPage(p))}
+    else if(/^image\//.test(b.type)||/\.(jpe?g|png|webp|gif|bmp)$/i.test(name)){
+      let bytes,png=b.type==="image/png";
+      if(b.type==="image/jpeg"||png)bytes=await b.arrayBuffer();
+      else{const bm=await createImageBitmap(b),c=document.createElement("canvas");c.width=bm.width;c.height=bm.height;c.getContext("2d").drawImage(bm,0,0);bytes=await (await new Promise(r=>c.toBlob(r,"image/png"))).arrayBuffer();png=true}
+      const img=png?await out.embedPng(bytes):await out.embedJpg(bytes),W=595.28,H=841.89,m=28,k=Math.min((W-2*m)/img.width,(H-2*m)/img.height,1),pg=out.addPage([W,H]);
+      pg.drawImage(img,{x:(W-img.width*k)/2,y:(H-img.height*k)/2,width:img.width*k,height:img.height*k});
+    }else skipped.push(name);
+  }catch(e){skipped.push(name)}}
+  return {pdf:new Blob([await out.save()],{type:"application/pdf"}),pages:out.getPageCount(),skipped};
+}
+async function printFiles(files,label){
+  if(!files.length)return toast("Chưa có tệp hồ sơ nào để in");
+  toast(`Đang chuẩn bị in ${label}…`);
+  try{
+    const L=[];for(const f of files)L.push({b:await (await fetch(fileUrl(f.id))).blob(),name:f.name});
+    if(L.length===1&&L[0].b.type==="application/pdf"){printBlob(L[0].b);return toast("Đã mở hộp thoại in — chọn máy in rồi bấm In")}
+    const r=await toPdf(L);if(!r.pages)return toast("Không có tệp in được — chỉ in được tệp PDF và ảnh");
+    printBlob(r.pdf);toast(`Đã mở hộp thoại in: ${r.pages} trang${r.skipped.length?` · bỏ qua ${r.skipped.length} tệp không phải PDF / ảnh (${r.skipped.join(", ")})`:""}`);
+  }catch(e){toast("Không in được: "+e.message)}
+}
+const stepFiles=(items,sid)=>items.filter(i=>i.step_id===sid).flatMap(i=>i.file_list||[]);
+const printStepBtn=(items,s)=>{const F=stepFiles(items,s.id);return F.length?`<button type="button" class="btn sm ckprint" data-prints="${esc(JSON.stringify(F))}" data-plabel="${esc(s.name)}" title="In tất cả ${F.length} tệp hồ sơ của việc này">${ico("print")}In hồ sơ (${F.length} tệp)</button>`:""};
+// bản HTML xuất ra: liên kết /api/file/… mở tệp nhúng sẵn
+document.addEventListener("click",e=>{const a=e.target.closest?.('a[href^="/api/file/"]');if(!a||!window.__SNAPF)return;const id=a.getAttribute("href").split("/")[3];if(!window.__SNAPF[id])return;
+  e.preventDefault();fetch(window.__SNAPF[id]).then(r=>r.blob()).then(b=>open(URL.createObjectURL(b),"_blank"))});
+document.addEventListener("click",e=>{const b=e.target.closest?.("[data-printf],[data-prints]");if(!b)return;e.preventDefault();e.stopPropagation();
+  if(b.dataset.printf)printFiles([{id:b.dataset.printf,name:b.dataset.fname||""}],"tệp «"+(b.dataset.fname||"")+"»");else printFiles(JSON.parse(b.dataset.prints),"hồ sơ «"+b.dataset.plabel+"»")},true);
 function ckRow(i,showStep){
   const can=act(...W);
   return `<li class="ckr ${i.ok?"ok":i.state}"><label class="tick"><input type="checkbox" data-tick="${i.id}" ${i.ok?"checked":""} ${can&&!(i.files||i.ref_text)?"":"disabled"} aria-label="Đã có: ${esc(i.name)}"><span aria-hidden="true">✓</span></label>
     <div class="ckb"><span class="ckn">${i.supp?`<span class="pill p-t">Bổ sung</span> `:""}<button type="button" class="ckname ${i.file_list?.length?"has":""}" data-pv="${i.id}" aria-expanded="${!!ST.ckPv?.has(i.id)}" title="${i.file_list?.length?"Bấm để xem hồ sơ":"Bấm để xem / tải hồ sơ"}">${esc(i.name)}</button>${i.required?"":` <small class="muted">(nếu có)</small>`}</span>${i.supp?`<small class="supl">Lý do: ${esc(i.reason||"")}${i.req_by?` · Yêu cầu: ${esc(i.req_by)}`:""} · Làm ${i.start_on?`từ ${dmy(i.start_on)} `:""}đến hạn ${dmy(i.due)}${act(...W)?` · <a href="#" data-sedit="${i.id}">Sửa</a>`:""}</small>`:""}${showStep?`<small class="muted"><a href="#" data-go="screen-09-03" data-sel="${i.step_id}">${esc(i.step)}</a></small>`:""}
-      ${i.file_list?.length?`<span class="ckfiles">${i.file_list.map(f=>`<span class="ckf"><a href="/api/file/${f.id}" target="_blank" rel="noopener" title="Mở tệp">${ico("file")}${esc(f.name)}</a>${can?`<button type="button" class="ckfx" data-delf="${f.id}" data-fname="${esc(f.name)}" title="Xóa tệp tải nhầm" aria-label="Xóa tệp ${esc(f.name)}">${ico("x")}</button>`:""}</span>`).join("")}</span>`:""}</div>
+      ${i.file_list?.length?`<span class="ckfiles">${i.file_list.map(f=>`<span class="ckf"><a href="/api/file/${f.id}" target="_blank" rel="noopener" title="Mở tệp">${ico("file")}${esc(f.name)}</a><button type="button" class="ckfx ckfp" data-printf="${f.id}" data-fname="${esc(f.name)}" title="In tệp này" aria-label="In tệp ${esc(f.name)}">${ico("print")}</button>${can?`<button type="button" class="ckfx" data-delf="${f.id}" data-fname="${esc(f.name)}" title="Xóa tệp tải nhầm" aria-label="Xóa tệp ${esc(f.name)}">${ico("x")}</button>`:""}</span>`).join("")}</span>`:""}</div>
     ${can?`<span class="ckact"><button type="button" class="ckbtn" data-up="${i.id}" title="Tải lên bản scan / PDF">${ico("upload")}${i.file_list?.length?"Thêm tệp":"Tải hồ sơ"}</button><button type="button" class="ckbtn ic" data-dir="${i.id}" title="Mở thư mục hồ sơ trên máy tính" aria-label="Mở thư mục hồ sơ trên máy tính">${ico("folder")}</button></span>`:""}
     <span class="pill p-${(CKS[i.state]||CKS.thieu)[0]} ckd">${i.state==="qua_han"?"⚠ ":i.ok?"✓ ":""}${esc(dueTxt(i))}</span>${!i.ok&&(i.state==="qua_han"||i.ext?.status==="cho")?`<button type="button" class="lnk ckext" data-ext-step="${i.step_id}" data-ext-item="${i.id}">${i.ext?.status==="cho"?`⏳ Chờ duyệt gia hạn → ${dm(i.ext.new_due)}`:"Giải trình · gia hạn"}</button>`:i.ext?.status==="duyet"&&!i.ok?`<span class="ckext muted" title="Đã được duyệt gia hạn">✓ đã gia hạn</span>`:""}${ST.ckPv?.has(i.id)?pvHtml(i):""}</li>`;
 }
@@ -941,7 +985,7 @@ function checklistAll(d,o={}){
     else if(!part){let lastSheet="",lastSec="";
       body=steps.map(s=>{const all=I.filter(i=>i.step_id===s.id),okN=all.filter(i=>i.ok).length,bad=all.some(i=>i.state==="qua_han");
         const hd=(s.sheet!==lastSheet?`<h2 class="cksheet">${esc(s.sheet||"")}</h2>`:"")+(s.section!==lastSec?`<h4 class="cksec">${esc(s.section||"")}</h4>`:"");lastSheet=s.sheet;lastSec=s.section;
-        return `${hd}<div class="card ckstep ${bad?"bad":""}"><div class="ckh"><a href="#" data-go="screen-09-03" data-sel="${s.id}"><b>${s.stt?esc(s.stt)+". ":""}${esc(s.name)}</b></a>${pill(P(STEP_ST[s.status]))}<small class="muted">${s.start||s.end?`${dmy(s.start)} → ${dmy(s.end)}`:"chưa có ngày"}</small><span style="flex:1"></span><small><b>${okN}/${all.length}</b> hồ sơ</small></div><ul class="cklist2">${s.items.map(i=>ckRow(i,false)).join("")}</ul>${act(...W)?`<button type="button" class="ckadd" data-supp="${s.id}"><span aria-hidden="true">+</span>Lập hồ sơ bổ sung cho công việc này</button>`:""}</div>`}).join("")}
+        return `${hd}<div class="card ckstep ${bad?"bad":""}"><div class="ckh"><a href="#" data-go="screen-09-03" data-sel="${s.id}"><b>${s.stt?esc(s.stt)+". ":""}${esc(s.name)}</b></a>${pill(P(STEP_ST[s.status]))}<small class="muted">${s.start||s.end?`${dmy(s.start)} → ${dmy(s.end)}`:"chưa có ngày"}</small><span style="flex:1"></span>${printStepBtn(d.items,s)}<small><b>${okN}/${all.length}</b> hồ sơ</small></div><ul class="cklist2">${s.items.map(i=>ckRow(i,false)).join("")}</ul>${act(...W)?`<button type="button" class="ckadd" data-supp="${s.id}"><span aria-hidden="true">+</span>Lập hồ sơ bổ sung cho công việc này</button>`:""}</div>`}).join("")}
     else
     body=tops.map(g=>{const {IA,okA,odA,nS}=stat(g.k);
       let lastPart="",lastSec="";
@@ -950,7 +994,7 @@ function checklistAll(d,o={}){
         return `${hd}<details class="ckt2 ${od?"bad":okN===all.length?"done":""}" data-ck="s:${s.id}" ${auto||open.has("s:"+s.id)?"open":""}><summary><span class="ckcar" aria-hidden="true"></span>
           <span class="ckt2n"><b>${s.stt?esc(s.stt)+". ":""}${esc(s.name)}</b><small>${s.start||s.end?`${dmy(s.start)} → ${dmy(s.end)}`:"chưa có ngày"}</small></span>
           ${od?`<span class="pill p-r">⚠ ${od} quá hạn</span>`:""}${pill(P(STEP_ST[s.status]))}<span class="ckcnt"><b>${okN}/${all.length}</b> hồ sơ</span></summary>
-          <div class="ckt2b"><ul class="cklist2">${s.items.map(i=>ckRow(i,false)).join("")}</ul>${act(...W)?`<button type="button" class="ckadd" data-supp="${s.id}"><span aria-hidden="true">+</span>Lập hồ sơ bổ sung cho công việc này</button>`:""}</div></details>`});
+          <div class="ckt2b">${printStepBtn(d.items,s)?`<div class="ckpr">${printStepBtn(d.items,s)}</div>`:""}<ul class="cklist2">${s.items.map(i=>ckRow(i,false)).join("")}</ul>${act(...W)?`<button type="button" class="ckadd" data-supp="${s.id}"><span aria-hidden="true">+</span>Lập hồ sơ bổ sung cho công việc này</button>`:""}</div></details>`});
       // trang riêng một phần (vd DTXD): chỉ hiện các giai đoạn lớn (I. Chuẩn bị dự án · II. Thực hiện dự án · III. Kết thúc dự án xây dựng), bấm để sổ công việc
       if(part){const G=[];g.steps.forEach((s,k)=>{const pt=partOf(s.sheet)||"Công việc khác";let x=G.find(y=>y.pt===pt);if(!x)G.push(x={pt,ids:new Set(),html:[]});x.ids.add(s.id);x.html.push(inner[k])});
         return G.map(x=>{const IA=I.filter(i=>x.ids.has(i.step_id)),okA=IA.filter(i=>i.ok).length,odA=IA.filter(i=>i.state==="qua_han").length;

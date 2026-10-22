@@ -1223,3 +1223,7 @@ details[open]>summary>.ckcar{transform:rotate(90deg)}
 .wkdr:hover{background:var(--accent-tint)}.wkdr>span:nth-child(2){flex:1;display:flex;flex-direction:column;gap:2px;min-width:0}.wkdr small{font-size:12px;color:var(--muted)}
 .agl small .err-t{display:inline}
 .grid.g4.ov3{grid-template-columns:repeat(3,minmax(0,1fr))}@container cv (max-width:900px){.grid.g4.ov3{grid-template-columns:minmax(0,1fr)}}
+/* nút In hồ sơ (Checklist) */
+.ckpr{display:flex;justify-content:flex-end;margin:0 0 6px}
+.ckprint{flex:none}
+.ckfx.ckfp:hover{color:var(--accent)}
