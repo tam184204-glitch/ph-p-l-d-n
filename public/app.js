@@ -397,8 +397,8 @@ VIEW["screen-09-00"]={
     if(!p.total)return projCard(p,d.today);
     const st=PST[p.status],act=p.active.length,ovc=d.causes.some(c=>c.label===ST.tab.ovc)?ST.tab.ovc:null,PB=ovc?p.problems.filter(x=>x.label===ovc):p.problems;
     ST.ovPB=PB;ST.ovPid=p.id;
-    return `${kpis([["Hoàn thành",p.pct+"%",`${p.counts.xong}/${p.total} bước pháp lý`,"g"],["Đang thực hiện",String(act),act?p.active.map(a=>a.name).slice(0,1)[0]:"không có bước đang làm","b"],["Bước chậm tiến độ",String(p.counts.cham),p.slip>0?`dự án chậm ${p.slip} ngày`:"đúng kế hoạch gốc",p.counts.cham?"r":"g"],["Dự kiến hoàn thành",dmy(p.finish),p.base?`kế hoạch gốc ${dmy(p.base)}`:`${p.no_base} bước chưa có kế hoạch gốc`,p.slip>0?"r":"g"]])}
-    ${p.no_base?`<div style="margin-top:14px">${banner("a",`${p.no_base}/${p.total} bước chưa có kế hoạch gốc nên chưa so được chậm / sớm. Vào Kế hoạch pháp lý › «Chốt kế hoạch gốc» khi đã thống nhất tiến độ.`)}</div>`:""}
+    // 4 thẻ số liệu đã có ở Kế hoạch pháp lý — Tổng quan bỏ (user 22/10)
+    return `${p.no_base?`<div style="margin-bottom:14px">${banner("a",`${p.no_base}/${p.total} bước chưa có kế hoạch gốc nên chưa so được chậm / sớm. Vào Kế hoạch pháp lý › «Chốt kế hoạch gốc» khi đã thống nhất tiến độ.`)}</div>`:""}
     ${projCard(p,d.today)}
     <div class="grid g2e" style="margin-top:14px"><div class="card"><h3>Các bước chậm so với kế hoạch gốc</h3>${lateChart(p.late_steps.slice(0,10))}${note("Độ dài thanh = số ngày chậm (dự kiến hoàn thành trừ kế hoạch gốc, hoặc số ngày cơ quan quá hạn trả kết quả). Bấm vào thanh để mở bước.")}</div>
       <div class="card"><h3>Nguyên nhân vướng mắc</h3>${causeChart(d.causes,ovc)}${note("Nguyên nhân do người phụ trách ghi khi bấm vào hồ sơ / công việc quá hạn. «Chưa ghi nguyên nhân» = đã quá hạn mà chưa ai giải trình. Bấm vào thanh để xem từng hồ sơ, bấm hồ sơ để xem hoặc ghi lý do.")}</div></div>
