@@ -444,13 +444,13 @@ function insightView(d){
     ${I.risk.length?`<ul class="agl">${I.risk.map(x=>`<li ${x.step?`data-step="${x.step}" tabindex="0" role="button"`:""}><span class="pill p-${x.lv==="cao"?"r":"a"}" style="flex:none">${esc(RK[x.k]||"Rủi ro")}</span><div><small style="color:var(--fg);font-size:13px">${esc(x.text.replace(/^Nguy cơ trễ hạn /,""))}</small></div></li>`).join("")}</ul>`
       :`<p class="muted">✓ Chưa thấy rủi ro pháp lý nào trong 14 ngày tới.</p>`}</div>`;
   // 4 thẻ số liệu (như Checklist): bấm thẻ → sổ chi tiết ngay bên dưới, bấm lại để thu
-  const nOver=W.filter(w=>w.k==="qua_han").length,nTask=W.filter(w=>w.k!=="ev").length,agOver=I.agency.filter(a=>a.left!=null&&a.left<0).length,rkHi=I.risk.filter(x=>x.lv==="cao").length;
+  const nOver=W.filter(w=>w.k==="qua_han").length,nTask=W.filter(w=>w.k!=="ev").length,agOver=I.agency.filter(a=>a.left!=null&&a.left<0).length;
   const C=[["tuan","Tuần này cần làm",String(nTask+drafts.length),[nOver&&`${nOver} quá hạn`,drafts.length&&`${drafts.length} dự thảo chờ chốt`,evs.length&&`${evs.length} lịch họp`].filter(Boolean).join(" · ")||"không có việc tới hạn",nOver?"r":"b",week],
     ["co_quan","Hồ sơ đang ở cơ quan",String(I.agency.length),I.agency.length?(agOver?`${agOver} hồ sơ quá hạn trả`:"chưa có hồ sơ quá hạn trả"):"chưa có hồ sơ chờ kết quả",agOver?"r":"g",ag],
-    ["nghen","Nghẽn tiến độ",String(B.list.length),B.slip?`dự án chậm ${B.slip} ngày`:"không có việc chậm",B.list.length?"r":"g",bl],
-    ["rui_ro","Rủi ro pháp lý sắp tới",String(I.risk.length),I.risk.length?`${rkHi} mức cao · 14 ngày tới`:"chưa thấy rủi ro",rkHi?"r":I.risk.length?"a":"g",rk]];
+    ["nghen","Nghẽn tiến độ",String(B.list.length),B.slip?`dự án chậm ${B.slip} ngày`:"không có việc chậm",B.list.length?"r":"g",bl]];
   const sel=C.find(c=>c[0]===ST.tab.ovk);let ci=0;
-  return kpis(C.map(c=>c.slice(1,5))).replace(/<div class="kpi">/g,()=>{const c=C[ci++];return `<div class="kpi plkpi" data-ovk="${c[0]}" role="button" tabindex="0" aria-pressed="${sel===c}" title="Bấm để xem chi tiết">`})
+  // user 22/10: bỏ thẻ «Rủi ro pháp lý sắp tới» — còn 3 thẻ
+  return kpis(C.map(c=>c.slice(1,5))).replace('class="grid g4"','class="grid g4 ov3"').replace(/<div class="kpi">/g,()=>{const c=C[ci++];return `<div class="kpi plkpi" data-ovk="${c[0]}" role="button" tabindex="0" aria-pressed="${sel===c}" title="Bấm để xem chi tiết">`})
     +(sel?`<div class="ovsel" style="margin-top:14px">${sel[5]}</div>`:"");
 }
 function projCard(p,t){

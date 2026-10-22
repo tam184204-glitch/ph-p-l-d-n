@@ -1222,3 +1222,4 @@ details[open]>summary>.ckcar{transform:rotate(90deg)}
 .wkdr{display:flex;align-items:center;gap:10px;margin-top:8px;padding:10px;border:1px dashed var(--line);border-radius:10px;color:inherit;text-decoration:none}
 .wkdr:hover{background:var(--accent-tint)}.wkdr>span:nth-child(2){flex:1;display:flex;flex-direction:column;gap:2px;min-width:0}.wkdr small{font-size:12px;color:var(--muted)}
 .agl small .err-t{display:inline}
+.grid.g4.ov3{grid-template-columns:repeat(3,minmax(0,1fr))}@container cv (max-width:900px){.grid.g4.ov3{grid-template-columns:minmax(0,1fr)}}
