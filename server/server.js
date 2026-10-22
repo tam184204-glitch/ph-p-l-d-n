@@ -658,7 +658,6 @@ route('GET', '/api/checklist', async ({ user, query }) => {
       i.issue_kind, i.issue_text, i.issue_at, iu.full_name AS issue_by_name,
       s.id AS step_id, s.name AS step, s.section, s.sheet, s.stt, s.status AS step_status, s.plan_start, s.plan_end, s.ord, d.full_name AS done_name,
       (SELECT count(*) FROM pl_file f WHERE f.item_id = i.id AND f.current) AS files,
-      (SELECT json_build_object('so', f.ai_facts->>'so_hieu', 'ngay', f.ai_facts->>'ngay_ban_hanh', 'cq', f.ai_facts->>'co_quan_ban_hanh') FROM pl_file f WHERE f.item_id = i.id AND f.current AND f.ai_facts IS NOT NULL ORDER BY f.uploaded_at DESC LIMIT 1) AS facts,
       (SELECT json_agg(json_build_object('id', f.id, 'name', f.name) ORDER BY f.uploaded_at) FROM pl_file f WHERE f.item_id = i.id AND f.current) AS file_list,
       (SELECT json_build_object('id', e.id, 'status', e.status, 'new_due', e.new_due) FROM pl_extend e WHERE e.item_id = i.id AND e.status <> 'rut' ORDER BY e.created_at DESC LIMIT 1) AS ext
     FROM pl_item i JOIN pl_step s ON s.id = i.step_id LEFT JOIN app_user d ON d.id = i.done_by LEFT JOIN app_user iu ON iu.id = i.issue_by
