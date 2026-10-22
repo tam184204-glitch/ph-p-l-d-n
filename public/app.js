@@ -851,10 +851,16 @@ async function editInfo(pid){
 const CKS={da_co:["g","Đã có"],qua_han:["r","Quá hạn"],hom_nay:["a","Hạn hôm nay"],sap_den:["a","Sắp đến hạn"],thieu:["n","Còn thiếu"]};
 const WD=["Chủ nhật","Thứ hai","Thứ ba","Thứ tư","Thứ năm","Thứ sáu","Thứ bảy"];
 const dueTxt=i=>i.supp&&!i.ok&&i.due?(i.state==="qua_han"?`quá hạn bổ sung ${i.late} ngày`:i.state==="hom_nay"?"hạn bổ sung hôm nay":`hạn bổ sung ${dmy(i.due)}`):!i.ok&&!i.required?(i.due?`nếu có · hạn ${dmy(i.due)}`:"nếu có"):i.ok?(i.done_at?`đã có · ${hm(i.done_at)}${i.done_name?" · "+i.done_name:""}`:i.files?`${i.files} tệp`:i.ref_text?"có số văn bản":"đã có"):!i.due?"chưa có hạn":i.state==="qua_han"?`quá hạn ${i.late} ngày (hạn ${dmy(i.due)})`:i.state==="hom_nay"?"hạn hôm nay":`hạn ${dmy(i.due)}`;
+// văn bản kết quả (cơ quan cấp / trả): số, ngày, cơ quan — lấy số ghi trong checklist, không có thì lấy từ nội dung AI đọc ở bản scan
+function kqLine(i){
+  const f=i.facts||{},so=i.ref_text||f.so,ng=/^\d{4}-\d{2}-\d{2}/.test(f.ngay||"")?dmy(f.ngay.slice(0,10)):f.ngay;
+  if(!i.ok)return `<small class="kql muted">Văn bản kết quả · chưa có</small>`;
+  return `<small class="kql">${so||ng||f.cq?esc([so&&"Số "+so,ng&&"ngày "+ng,f.cq].filter(Boolean).join(" · ")):"Đã có · chưa ghi số văn bản"}</small>`;
+}
 function ckRow(i,showStep){
   const can=act(...W);
   return `<li class="ckr ${i.ok?"ok":i.state}"><label class="tick"><input type="checkbox" data-tick="${i.id}" ${i.ok?"checked":""} ${can&&!(i.files||i.ref_text)?"":"disabled"} aria-label="Đã có: ${esc(i.name)}"><span aria-hidden="true">✓</span></label>
-    <div class="ckb"><span class="ckn">${i.supp?`<span class="pill p-t">Bổ sung</span> `:""}<button type="button" class="ckname ${i.file_list?.length?"has":""}" data-pv="${i.id}" aria-expanded="${!!ST.ckPv?.has(i.id)}" title="${i.file_list?.length?"Bấm để xem hồ sơ":"Bấm để xem / tải hồ sơ"}">${esc(i.name)}</button>${i.required?"":` <small class="muted">(nếu có)</small>`}</span>${i.supp?`<small class="supl">Lý do: ${esc(i.reason||"")}${i.req_by?` · Yêu cầu: ${esc(i.req_by)}`:""} · Làm ${i.start_on?`từ ${dmy(i.start_on)} `:""}đến hạn ${dmy(i.due)}${act(...W)?` · <a href="#" data-sedit="${i.id}">Sửa</a>`:""}</small>`:""}${showStep?`<small class="muted"><a href="#" data-go="screen-09-03" data-sel="${i.step_id}">${esc(i.step)}</a></small>`:""}
+    <div class="ckb"><span class="ckn">${i.supp?`<span class="pill p-t">Bổ sung</span> `:""}<button type="button" class="ckname ${i.file_list?.length?"has":""}" data-pv="${i.id}" aria-expanded="${!!ST.ckPv?.has(i.id)}" title="${i.file_list?.length?"Bấm để xem hồ sơ":"Bấm để xem / tải hồ sơ"}">${esc(i.name)}</button>${i.required?"":` <small class="muted">(nếu có)</small>`}</span>${i.kind==="ket_qua"?kqLine(i):""}${i.supp?`<small class="supl">Lý do: ${esc(i.reason||"")}${i.req_by?` · Yêu cầu: ${esc(i.req_by)}`:""} · Làm ${i.start_on?`từ ${dmy(i.start_on)} `:""}đến hạn ${dmy(i.due)}${act(...W)?` · <a href="#" data-sedit="${i.id}">Sửa</a>`:""}</small>`:""}${showStep?`<small class="muted"><a href="#" data-go="screen-09-03" data-sel="${i.step_id}">${esc(i.step)}</a></small>`:""}
       ${i.file_list?.length?`<span class="ckfiles">${i.file_list.map(f=>`<span class="ckf"><a href="/api/file/${f.id}" target="_blank" rel="noopener" title="Mở tệp">${ico("file")}${esc(f.name)}</a>${can?`<button type="button" class="ckfx" data-delf="${f.id}" data-fname="${esc(f.name)}" title="Xóa tệp tải nhầm" aria-label="Xóa tệp ${esc(f.name)}">${ico("x")}</button>`:""}</span>`).join("")}</span>`:""}</div>
     ${can?`<span class="ckact"><button type="button" class="ckbtn" data-up="${i.id}" title="Tải lên bản scan / PDF">${ico("upload")}${i.file_list?.length?"Thêm tệp":"Tải hồ sơ"}</button><button type="button" class="ckbtn ic" data-dir="${i.id}" title="Mở thư mục hồ sơ trên máy tính" aria-label="Mở thư mục hồ sơ trên máy tính">${ico("folder")}</button></span>`:""}
     <span class="pill p-${(CKS[i.state]||CKS.thieu)[0]} ckd">${i.state==="qua_han"?"⚠ ":i.ok?"✓ ":""}${esc(dueTxt(i))}</span>${!i.ok&&(i.state==="qua_han"||i.ext?.status==="cho")?`<button type="button" class="lnk ckext" data-ext-step="${i.step_id}" data-ext-item="${i.id}">${i.ext?.status==="cho"?`⏳ Chờ duyệt gia hạn → ${dm(i.ext.new_due)}`:"Giải trình · gia hạn"}</button>`:i.ext?.status==="duyet"&&!i.ok?`<span class="ckext muted" title="Đã được duyệt gia hạn">✓ đã gia hạn</span>`:""}${ST.ckPv?.has(i.id)?pvHtml(i):""}</li>`;
@@ -868,10 +874,10 @@ function checklistAll(d,o={}){
   if(!o.all)ST.ckPart=part;
   const t=d.today,I=part?d.items.filter(i=>ckTop(i.sheet)===part):d.items,req=I.filter(i=>i.required);
   const n=k=>req.filter(i=>i.state===k).length,ok=req.filter(i=>i.ok).length;
-  const F=["Tất cả","Còn thiếu","Quá hạn","Đến hạn 7 ngày","Hồ sơ bổ sung","Đã có","Hạn hôm nay"],c=ST.chip.ck??0,view=ST.tab.ckv||"viec";
+  const F=["Tất cả","Còn thiếu","Quá hạn","Đến hạn 7 ngày","Hồ sơ bổ sung","Đã có","Hạn hôm nay","Văn bản kết quả"],c=ST.chip.ck??0,view=ST.tab.ckv||"viec";
   // hồ sơ vừa tick / bỏ tick trong lúc xem vẫn giữ nguyên chỗ (không biến khỏi danh sách đang lọc)
   const kept=ST.ckKept||(ST.ckKept=new Set());
-  const pick=i=>([true,!i.ok&&i.required,i.state==="qua_han",["hom_nay","sap_den","qua_han"].includes(i.state),i.supp,i.ok,!i.ok&&i.due===t][c]||kept.has(i.id))&&match("ck",[i.name,i.step,i.section,i.sheet,i.reason,i.req_by,...(i.file_list||[]).map(f=>f.name)].filter(Boolean).join(" "));
+  const pick=i=>([true,!i.ok&&i.required,i.state==="qua_han",["hom_nay","sap_den","qua_han"].includes(i.state),i.supp,i.ok,!i.ok&&i.due===t,i.kind==="ket_qua"][c]||kept.has(i.id))&&match("ck",[i.name,i.step,i.section,i.sheet,i.reason,i.req_by,...(i.file_list||[]).map(f=>f.name)].filter(Boolean).join(" "));
   const rows=I.filter(pick);
   const over=req.filter(i=>i.state==="qua_han").sort((a,b)=>b.late-a.late),today_=I.filter(i=>!i.ok&&i.due===t),soon=req.filter(i=>i.state==="sap_den");
   let body="";

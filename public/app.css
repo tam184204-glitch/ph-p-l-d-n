@@ -1205,3 +1205,6 @@ details[open]>summary>.ckcar{transform:rotate(90deg)}
 .attsug [role=option].on,.attsug [role=option]:hover{background:var(--accent-tint)}
 .attsug small{color:var(--muted)}
 .remh{display:block;font-size:11.5px;color:var(--k);font-weight:600;margin:0 0 2px!important}
+/* checklist: dòng số / ngày / cơ quan của văn bản kết quả */
+.kql{display:block;font-size:12.5px;margin-top:2px;color:var(--fg);font-weight:500}
+.kql.muted{color:var(--muted);font-weight:400}
