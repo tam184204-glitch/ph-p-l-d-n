@@ -772,6 +772,7 @@ async function buildFullHtml(){
   for(let i=0;i<steps.length;i+=12)await Promise.all(steps.slice(i,i+12).map(s=>get("/api/steps/"+s.id)));
   for(const d of snap["/api/docs"+Q])await get("/api/docs/"+d.id);
   snap["/api/ai-chats"]=[];   // bản xem không có hội thoại AI — tránh báo «không có dữ liệu» ở màn Trợ lý AI
+  snap["/api/invites"]=[];    // bản xem không hiện thẻ mời của người xuất
   const txt=async u=>(await fetch(u,{cache:"no-store"})).text();
   const dataUrl=async u=>{const b=await (await fetch(u)).blob();return await new Promise(r=>{const f=new FileReader();f.onload=()=>r(f.result);f.readAsDataURL(b)})};
   let [html,css,vb,js,gold,gpmb,dtxd]=await Promise.all([txt("index.html"),txt("app.css"),txt("vanban.js"),txt("app.js"),dataUrl("logo-gold.png"),dataUrl("gpmb.jpg"),dataUrl("dtxd.jpg")]);
