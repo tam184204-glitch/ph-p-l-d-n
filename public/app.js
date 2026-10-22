@@ -408,12 +408,11 @@ VIEW["screen-09-00"]={
   after(d){
     // bấm bước → sổ ngay nội dung (hồ sơ, quá hạn thì giải trình / đề xuất hạn mới); bấm thẻ số liệu → danh sách tương ứng ở Kế hoạch
     $$("[data-step]").forEach(el=>{const f=()=>stepPanel(el.dataset.step);el.onclick=f;el.onkeydown=e=>{if(e.key==="Enter")f()}});
+    $$("[data-ovk]").forEach(el=>{const f=()=>{const y=scrollY;ST.tab.ovk=ST.tab.ovk===el.dataset.ovk?null:el.dataset.ovk;render();scrollTo(0,y);$(`[data-ovk="${el.dataset.ovk}"]`)?.focus({preventScroll:true})};el.onclick=f;el.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();f()}}});
     $$("[data-ovev]").forEach(el=>{const f=()=>{const ev=(d.ev||[]).find(x=>x.id===el.dataset.ovev);ev&&editEvent(ev,{pid:ev.project_id,ev:d.ev})};el.onclick=f;el.onkeydown=e=>{if(e.key==="Enter")f()}});
     // bấm thanh nguyên nhân → lọc bảng; bấm dòng → xem / ghi nguyên nhân của hồ sơ (hoặc cả công việc)
     $$("[data-cause]").forEach(el=>{const f=()=>{const c=el.dataset.cause;ST.tab.ovc=!c||ST.tab.ovc===c?null:c;render();$("#ovProb")?.scrollIntoView({block:"nearest",behavior:"smooth"})};el.onclick=f;el.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();f()}}});
     $$("[data-prob]").forEach(el=>{const x=ST.ovPB[+el.dataset.prob],f=()=>extModal(x.step_id,x.item_id||null,ST.ovPid);el.onclick=f;el.onkeydown=e=>{if(e.key==="Enter")f()}});
-    $$("#cv .grid.g4 > .kpi").forEach((k,i)=>{const f=["xong","dang","qua","cuoi"][i];if(!f)return;k.classList.add("plkpi");k.setAttribute("role","button");k.tabIndex=0;k.title="Bấm để xem danh sách";
-      const g=()=>{ST.tab.plf=f;ST.tab.plv="muc";go("screen-09-02")};k.onclick=g;k.onkeydown=e=>{if(e.key==="Enter"||e.key===" "){e.preventDefault();g()}}});
     $$("[data-plan]").forEach(b=>b.onclick=()=>{setProj(b.dataset.plan);ST.data={};go("screen-09-02")});
     $("#rpHtml")&&($("#rpHtml").onclick=e=>exportFullHtml(e.currentTarget));
   }};
@@ -444,7 +443,15 @@ function insightView(d){
   const rk=`<div class="card"><h3>Rủi ro pháp lý sắp tới <small class="muted" style="font-weight:400">14 ngày tới · quy định mới 90 ngày tới</small></h3>
     ${I.risk.length?`<ul class="agl">${I.risk.map(x=>`<li ${x.step?`data-step="${x.step}" tabindex="0" role="button"`:""}><span class="pill p-${x.lv==="cao"?"r":"a"}" style="flex:none">${esc(RK[x.k]||"Rủi ro")}</span><div><small style="color:var(--fg);font-size:13px">${esc(x.text.replace(/^Nguy cơ trễ hạn /,""))}</small></div></li>`).join("")}</ul>`
       :`<p class="muted">✓ Chưa thấy rủi ro pháp lý nào trong 14 ngày tới.</p>`}</div>`;
-  return `<div class="grid g2e">${week}${ag}</div><div class="grid g2e" style="margin-top:14px">${bl}${rk}</div>`;
+  // 4 thẻ số liệu (như Checklist): bấm thẻ → sổ chi tiết ngay bên dưới, bấm lại để thu
+  const nOver=W.filter(w=>w.k==="qua_han").length,nTask=W.filter(w=>w.k!=="ev").length,agOver=I.agency.filter(a=>a.left!=null&&a.left<0).length,rkHi=I.risk.filter(x=>x.lv==="cao").length;
+  const C=[["tuan","Tuần này cần làm",String(nTask+drafts.length),[nOver&&`${nOver} quá hạn`,drafts.length&&`${drafts.length} dự thảo chờ chốt`,evs.length&&`${evs.length} lịch họp`].filter(Boolean).join(" · ")||"không có việc tới hạn",nOver?"r":"b",week],
+    ["co_quan","Hồ sơ đang ở cơ quan",String(I.agency.length),I.agency.length?(agOver?`${agOver} hồ sơ quá hạn trả`:"chưa có hồ sơ quá hạn trả"):"chưa có hồ sơ chờ kết quả",agOver?"r":"g",ag],
+    ["nghen","Nghẽn tiến độ",String(B.list.length),B.slip?`dự án chậm ${B.slip} ngày`:"không có việc chậm",B.list.length?"r":"g",bl],
+    ["rui_ro","Rủi ro pháp lý sắp tới",String(I.risk.length),I.risk.length?`${rkHi} mức cao · 14 ngày tới`:"chưa thấy rủi ro",rkHi?"r":I.risk.length?"a":"g",rk]];
+  const sel=C.find(c=>c[0]===ST.tab.ovk);let ci=0;
+  return kpis(C.map(c=>c.slice(1,5))).replace(/<div class="kpi">/g,()=>{const c=C[ci++];return `<div class="kpi plkpi" data-ovk="${c[0]}" role="button" tabindex="0" aria-pressed="${sel===c}" title="Bấm để xem chi tiết">`})
+    +(sel?`<div class="ovsel" style="margin-top:14px">${sel[5]}</div>`:"");
 }
 function projCard(p,t){
   const s=PST[p.status];
