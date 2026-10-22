@@ -894,7 +894,9 @@ const WD=["Chủ nhật","Thứ hai","Thứ ba","Thứ tư","Thứ năm","Thứ 
 const dueTxt=i=>i.supp&&!i.ok&&i.due?(i.state==="qua_han"?`quá hạn bổ sung ${i.late} ngày`:i.state==="hom_nay"?"hạn bổ sung hôm nay":`hạn bổ sung ${dmy(i.due)}`):!i.ok&&!i.required?(i.due?`nếu có · hạn ${dmy(i.due)}`:"nếu có"):i.ok?(i.done_at?`đã có · ${hm(i.done_at)}${i.done_name?" · "+i.done_name:""}`:i.files?`${i.files} tệp`:i.ref_text?"có số văn bản":"đã có"):!i.due?"chưa có hạn":i.state==="qua_han"?`quá hạn ${i.late} ngày (hạn ${dmy(i.due)})`:i.state==="hom_nay"?"hạn hôm nay":`hạn ${dmy(i.due)}`;
 /* ---------- nút In hồ sơ: ghép tệp PDF / ảnh rồi mở hộp thoại in của Windows (chọn máy in ở đó) ----------
    chưa có mẫu in riêng (trang bìa, danh mục) — in đúng các tệp đang có. Bản HTML xuất ra: tệp nhúng sẵn trong __SNAPF */
-const fileUrl=id=>window.__SNAPF?.[id]||`/api/file/${id}`;
+const fileUrl=id=>window.__SNAPB?.[id]||window.__SNAPF?.[id]||`/api/file/${id}`;
+// bản HTML: đổi tệp nhúng sang đường dẫn blob (khung xem PDF không mở được dạng data:)
+if(window.__SNAPF){window.__SNAPB={};Object.entries(window.__SNAPF).forEach(([k,v])=>fetch(v).then(r=>r.blob()).then(b=>window.__SNAPB[k]=URL.createObjectURL(b)))}
 let pdfLibP;
 const pdfLib=()=>pdfLibP||(pdfLibP=window.PDFLib?Promise.resolve(window.PDFLib):new Promise((ok,no)=>{const s=document.createElement("script");s.src="vendor/pdf-lib.min.js";s.onload=()=>ok(window.PDFLib);s.onerror=()=>{pdfLibP=null;no(new Error("Không tải được thư viện in"))};document.head.append(s)}));
 function printBlob(b){
@@ -930,7 +932,7 @@ async function printFiles(files,label){
 const stepFiles=(items,sid)=>items.filter(i=>i.step_id===sid).flatMap(i=>i.file_list||[]);
 const printStepBtn=(items,s)=>{const F=stepFiles(items,s.id);return F.length?`<button type="button" class="btn sm ckprint" data-prints="${esc(JSON.stringify(F))}" data-plabel="${esc(s.name)}" title="In tất cả ${F.length} tệp hồ sơ của việc này">${ico("print")}In hồ sơ (${F.length} tệp)</button>`:""};
 // bản HTML xuất ra: liên kết /api/file/… mở tệp nhúng sẵn
-document.addEventListener("click",e=>{const a=e.target.closest?.('a[href^="/api/file/"]');if(!a||!window.__SNAPF)return;const id=a.getAttribute("href").split("/")[3];if(!window.__SNAPF[id])return;
+document.addEventListener("click",e=>{const a=e.target.closest?.('a[href^="/api/file/"]');if(!a||!window.__SNAPF||a.dataset.pvo)return;const id=a.getAttribute("href").split("/")[3];if(!window.__SNAPF[id])return;
   e.preventDefault();fetch(window.__SNAPF[id]).then(r=>r.blob()).then(b=>open(URL.createObjectURL(b),"_blank"))});
 document.addEventListener("click",e=>{const b=e.target.closest?.("[data-printf],[data-prints]");if(!b)return;e.preventDefault();e.stopPropagation();
   if(b.dataset.printf)printFiles([{id:b.dataset.printf,name:b.dataset.fname||""}],"tệp «"+(b.dataset.fname||"")+"»");else printFiles(JSON.parse(b.dataset.prints),"hồ sơ «"+b.dataset.plabel+"»")},true);
@@ -938,7 +940,7 @@ function ckRow(i,showStep){
   const can=act(...W);
   return `<li class="ckr ${i.ok?"ok":i.state}"><label class="tick"><input type="checkbox" data-tick="${i.id}" ${i.ok?"checked":""} ${can&&!(i.files||i.ref_text)?"":"disabled"} aria-label="Đã có: ${esc(i.name)}"><span aria-hidden="true">✓</span></label>
     <div class="ckb"><span class="ckn">${i.supp?`<span class="pill p-t">Bổ sung</span> `:""}<button type="button" class="ckname ${i.file_list?.length?"has":""}" data-pv="${i.id}" aria-expanded="${!!ST.ckPv?.has(i.id)}" title="${i.file_list?.length?"Bấm để xem hồ sơ":"Bấm để xem / tải hồ sơ"}">${esc(i.name)}</button>${i.required?"":` <small class="muted">(nếu có)</small>`}</span>${i.supp?`<small class="supl">Lý do: ${esc(i.reason||"")}${i.req_by?` · Yêu cầu: ${esc(i.req_by)}`:""} · Làm ${i.start_on?`từ ${dmy(i.start_on)} `:""}đến hạn ${dmy(i.due)}${act(...W)?` · <a href="#" data-sedit="${i.id}">Sửa</a>`:""}</small>`:""}${showStep?`<small class="muted"><a href="#" data-go="screen-09-03" data-sel="${i.step_id}">${esc(i.step)}</a></small>`:""}
-      ${i.file_list?.length?`<span class="ckfiles">${i.file_list.map(f=>`<span class="ckf"><a href="/api/file/${f.id}" target="_blank" rel="noopener" title="Mở tệp">${ico("file")}${esc(f.name)}</a><button type="button" class="ckfx ckfp" data-printf="${f.id}" data-fname="${esc(f.name)}" title="In tệp này" aria-label="In tệp ${esc(f.name)}">${ico("print")}</button>${can?`<button type="button" class="ckfx" data-delf="${f.id}" data-fname="${esc(f.name)}" title="Xóa tệp tải nhầm" aria-label="Xóa tệp ${esc(f.name)}">${ico("x")}</button>`:""}</span>`).join("")}</span>`:""}</div>
+      ${i.file_list?.length?`<span class="ckfiles">${i.file_list.map((f,j)=>`<span class="ckf"><a href="/api/file/${f.id}" target="_blank" rel="noopener" data-pvo="${i.id}:${j}" title="Bấm để xem và in">${ico("file")}${esc(f.name)}</a><button type="button" class="ckfx ckfp" data-printf="${f.id}" data-fname="${esc(f.name)}" title="In tệp này" aria-label="In tệp ${esc(f.name)}">${ico("print")}</button>${can?`<button type="button" class="ckfx" data-delf="${f.id}" data-fname="${esc(f.name)}" title="Xóa tệp tải nhầm" aria-label="Xóa tệp ${esc(f.name)}">${ico("x")}</button>`:""}</span>`).join("")}</span>`:""}</div>
     ${can?`<span class="ckact"><button type="button" class="ckbtn" data-up="${i.id}" title="Tải lên bản scan / PDF">${ico("upload")}${i.file_list?.length?"Thêm tệp":"Tải hồ sơ"}</button><button type="button" class="ckbtn ic" data-dir="${i.id}" title="Mở thư mục hồ sơ trên máy tính" aria-label="Mở thư mục hồ sơ trên máy tính">${ico("folder")}</button></span>`:""}
     <span class="pill p-${(CKS[i.state]||CKS.thieu)[0]} ckd">${i.state==="qua_han"?"⚠ ":i.ok?"✓ ":""}${esc(dueTxt(i))}</span>${!i.ok&&(i.state==="qua_han"||i.ext?.status==="cho")?`<button type="button" class="lnk ckext" data-ext-step="${i.step_id}" data-ext-item="${i.id}">${i.ext?.status==="cho"?`⏳ Chờ duyệt gia hạn → ${dm(i.ext.new_due)}`:"Giải trình · gia hạn"}</button>`:i.ext?.status==="duyet"&&!i.ok?`<span class="ckext muted" title="Đã được duyệt gia hạn">✓ đã gia hạn</span>`:""}${ST.ckPv?.has(i.id)?pvHtml(i):""}</li>`;
 }
@@ -1833,12 +1835,12 @@ function stepPicker(inp,steps,pre){
 function pvHtml(i){
   const L=i.file_list||[],k=Math.min((ST.ckPvSel||{})[i.id]||0,Math.max(L.length-1,0)),f=L[k];
   if(!f)return `<div class="ckpv"><div class="pvempty">${ico("file")}<span>Chưa có tệp cho hồ sơ này.${act(...W)?` Bấm <b>Tải hồ sơ</b> để tải bản scan / PDF lên.`:""}</span>${act(...W)?`<button type="button" class="ckbtn" data-up="${i.id}">${ico("upload")}Tải hồ sơ</button>`:""}</div></div>`;
-  const view=/\.pdf$/i.test(f.name)?`<iframe src="/api/file/${f.id}#view=FitH" title="${esc(f.name)}" loading="lazy"></iframe>`
-    :/\.(jpe?g|png|gif|webp)$/i.test(f.name)?`<img src="/api/file/${f.id}" alt="${esc(f.name)}" loading="lazy">`
+  const u=fileUrl(f.id),view=/\.pdf$/i.test(f.name)?`<iframe src="${u}#view=FitH" title="${esc(f.name)}" loading="lazy"></iframe>`
+    :/\.(jpe?g|png|gif|webp)$/i.test(f.name)?`<img src="${u}" alt="${esc(f.name)}" loading="lazy">`
     :`<p class="pvno">Tệp «${esc(f.name)}» không xem trực tiếp được trên trình duyệt — bấm «Tải về» để mở bằng phần mềm trên máy.</p>`;
   return `<div class="ckpv">${L.length>1?`<div class="pvtabs" role="tablist">${L.map((x,j)=>`<button type="button" role="tab" aria-selected="${j===k}" data-pvf="${i.id}:${j}">${ico("file")}${esc(x.name)}</button>`).join("")}</div>`:""}
     <div class="pvbox">${view}</div>
-    <div class="pvbar"><small>${esc(f.name)}</small><span style="flex:1"></span><a class="ckbtn" href="/api/file/${f.id}" target="_blank" rel="noopener">${ico("eye")}Mở tab mới</a><a class="ckbtn" href="/api/file/${f.id}?dl=1">${ico("down")}Tải về</a>${act(...W)?`<button type="button" class="ckbtn dan" data-delf="${f.id}" data-fname="${esc(f.name)}">${ico("x")}Xóa tệp</button>`:""}</div></div>`;
+    <div class="pvbar"><small>${esc(f.name)}</small><span style="flex:1"></span><button type="button" class="ckbtn pri" data-printf="${f.id}" data-fname="${esc(f.name)}" title="In văn bản này — chọn máy in trong hộp thoại">${ico("print")}In</button><a class="ckbtn" href="${u}" target="_blank" rel="noopener">${ico("eye")}Mở tab mới</a><a class="ckbtn" href="${window.__SNAPF?u:`/api/file/${f.id}?dl=1`}" ${window.__SNAPF?`download="${esc(f.name)}"`:""}>${ico("down")}Tải về</a>${act(...W)?`<button type="button" class="ckbtn dan" data-delf="${f.id}" data-fname="${esc(f.name)}">${ico("x")}Xóa tệp</button>`:""}</div></div>`;
 }
 const ckItem=id=>(ST.data["screen-09-03"]?.ck?.items||[]).find(x=>x.id===id)||(ST.panelItems||[]).find(x=>x.id===id);
 document.addEventListener("click",e=>{
@@ -1846,6 +1848,10 @@ document.addEventListener("click",e=>{
   if(b){e.preventDefault();const id=b.dataset.pv,it=ckItem(id),li=b.closest(".ckr");if(!it||!li)return;
     const set=ST.ckPv||(ST.ckPv=new Set()),old=li.querySelector(".ckpv");
     if(old){old.remove();set.delete(id);b.setAttribute("aria-expanded","false")}else{li.insertAdjacentHTML("beforeend",pvHtml(it));set.add(id);b.setAttribute("aria-expanded","true")}return}
+  // bấm chip tên tệp → sổ khung xem (đang mở thì chuyển sang tệp đó)
+  const o=e.target.closest("[data-pvo]");
+  if(o){e.preventDefault();e.stopImmediatePropagation();const [id,j]=o.dataset.pvo.split(":"),it=ckItem(id),li=o.closest(".ckr");if(!it||!li)return;(ST.ckPvSel||(ST.ckPvSel={}))[id]=+j;
+    const old=li.querySelector(".ckpv");if(old)old.outerHTML=pvHtml(it);else{li.insertAdjacentHTML("beforeend",pvHtml(it));(ST.ckPv||(ST.ckPv=new Set())).add(id);li.querySelector("[data-pv]")?.setAttribute("aria-expanded","true")}return}
   const t=e.target.closest("[data-pvf]");
   if(t){const [id,j]=t.dataset.pvf.split(":"),it=ckItem(id),li=t.closest(".ckr");if(!it||!li)return;(ST.ckPvSel||(ST.ckPvSel={}))[id]=+j;li.querySelector(".ckpv").outerHTML=pvHtml(it)}
 });
