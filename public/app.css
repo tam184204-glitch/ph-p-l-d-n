@@ -1054,7 +1054,7 @@ details[open]>summary>.ckcar{transform:rotate(90deg)}
 
 /* logo trên thanh bên to hơn, chữ bên phải logo (không xuống dòng) */
 .rail .brand{flex-direction:row;align-items:center;text-align:left;gap:10px;padding:6px 4px 18px}
-.rail .brand .logo{width:72px;height:72px}
+.rail .brand .logo{width:48px;height:48px}
 .rail .brand>div{min-width:0}
 .rail .brand b{white-space:nowrap;font-size:13.5px;letter-spacing:.03em}
 .rail .brand small{display:block;white-space:nowrap;font-size:10.5px;letter-spacing:.04em;margin-top:2px}
